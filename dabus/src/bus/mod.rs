@@ -36,7 +36,10 @@ impl DABus {
 
     fn find_handler_for(&self, event: &BusEvent) -> Option<Box<dyn BusStop>> {
         let mut who_asked = self.registered_stops.borrow_mut().drain_filter(|stop| {
-            stop.cares(event)
+            // debug!("checking weather handler matches event: {:?}", stop);
+            let matches = stop.cares(&*event);
+            // debug!("Handler matches event: {}", matches);
+            matches
         }).collect::<Vec<_>>();
         match who_asked.len() {
             0 => None,
@@ -84,11 +87,12 @@ impl DABus {
         };
     }
 
-    pub async fn fire<E: Any + 'static, A: Any + 'static, R: Any + 'static>(&mut self, event: E, args: A) -> R {
+    pub async fn fire<E: Any + Send + 'static, A: Any + Send + 'static, R: Any + 'static>(&mut self, event: E, args: A) -> R {
         let id = Uuid::new_v4();
         let event = BusEvent::new(event, args, id);
-
-        let mut handler = self.find_handler_for(&event).unwrap();
+        // info!("type of fired event: {} {} {}", type_name::<E>(), type_name::<A>(), type_name::<R>());
+        // debug!("checking for handler for the new message");
+        let mut handler = self.find_handler_for(&event).expect("no handler for this message type exists");
 
         let res = *self.fire_raw(&mut handler, event).await.into_raw().unwrap().1.downcast().unwrap();
 

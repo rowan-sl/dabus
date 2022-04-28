@@ -18,7 +18,7 @@ impl BusInterface {
         }
     }
 
-    pub async fn fire<E: Any + 'static, A: Any + 'static, R: Any + 'static>(&mut self, event: E, args: A) -> R {
+    pub async fn fire<E: Any + Send + 'static, A: Any + Send + 'static, R: Any + Send + 'static>(&mut self, event: E, args: A) -> R {
         // unbounded
         debug_assert!(self.event_queue.capacity().is_none());
 

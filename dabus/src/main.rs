@@ -8,8 +8,10 @@ pub mod stop;
 
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate async_trait;
 
-pub use bus::DABus;
+pub use bus::{DABus, sys::ReturnEvent};
 pub use event::BusEvent;
 pub use interface::BusInterface;
 pub use stop::BusStop;
@@ -21,5 +23,31 @@ async fn main() {
         .filter_level(log::LevelFilter::Trace)
         .init();
 
-    println!("Hello, world!");
+    let mut bus = DABus::new();
+    bus.register(HelloHandler {});
+    bus.fire::<(), (), ()>((),()).await;
+}
+
+#[derive(Debug)]
+struct HelloMessage {}
+
+#[derive(Debug)]
+struct HelloHandler {}
+
+#[async_trait]
+impl BusStop for HelloHandler {
+    async fn event(
+        &mut self,
+        event: &mut BusEvent,
+        _bus: BusInterface,
+    ) -> BusEvent {
+        let (_, _) = event.is_into::<(), ()>().unwrap();
+        println!("Hello, World!");
+        BusEvent::new(ReturnEvent, (), event.uuid())
+    }
+
+    fn cares(&mut self, event: &BusEvent) -> bool {
+        event.args_are::<()>() &
+        event.event_is::<()>()
+    }
 }
