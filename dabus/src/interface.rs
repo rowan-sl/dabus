@@ -3,8 +3,7 @@ use std::any::Any;
 use flume::Sender;
 use uuid::Uuid;
 
-use crate::{event::BusEvent, bus::sys::ReturnEvent};
-
+use crate::{bus::sys::ReturnEvent, event::BusEvent};
 
 #[derive(Debug, Clone)]
 pub struct BusInterface {
@@ -18,7 +17,11 @@ impl BusInterface {
         }
     }
 
-    pub async fn fire<E: Any + Send + 'static, A: Any + Send + 'static, R: Any + Send + 'static>(&mut self, event: E, args: A) -> R {
+    pub async fn fire<E: Any + Send + 'static, A: Any + Send + 'static, R: Any + Send + 'static>(
+        &mut self,
+        event: E,
+        args: A,
+    ) -> R {
         // unbounded
         debug_assert!(self.event_queue.capacity().is_none());
 
@@ -31,6 +34,12 @@ impl BusInterface {
             .send((msg, response_tx))
             .expect("BusStops must be destroyed before the central handler!");
 
-        *response_rx.recv_async().await.expect("sender sent a response").is_into::<ReturnEvent, R>().unwrap().1
+        *response_rx
+            .recv_async()
+            .await
+            .expect("sender sent a response")
+            .is_into::<ReturnEvent, R>()
+            .unwrap()
+            .1
     }
 }

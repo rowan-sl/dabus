@@ -2,18 +2,21 @@ use std::any::{Any, TypeId};
 
 use uuid::Uuid;
 
-
 pub struct BusEvent {
     /// args the event was called with
     args: Option<Box<dyn Any + Send + 'static>>,
     /// the event itself
     event: Option<Box<dyn Any + Send + 'static>>,
     /// identifier used for event responses
-    id: Uuid
+    id: Uuid,
 }
 
 impl BusEvent {
-    pub fn new(event: impl Any + Send + 'static, args: impl Any + Send + 'static, id: Uuid) -> Self {
+    pub fn new(
+        event: impl Any + Send + 'static,
+        args: impl Any + Send + 'static,
+        id: Uuid,
+    ) -> Self {
         Self {
             args: Some(Box::new(args)),
             event: Some(Box::new(event)),
@@ -44,7 +47,9 @@ impl BusEvent {
     }
 
     /// if the contained event is of the type `E` and args are of type `A`, returning them bolth
-    pub fn is_into<E: Any + Send + 'static, A: Any + Send + 'static>(&mut self) -> Option<(Box<E>, Box<A>)> {
+    pub fn is_into<E: Any + Send + 'static, A: Any + Send + 'static>(
+        &mut self,
+    ) -> Option<(Box<E>, Box<A>)> {
         // trace!("Attempting to convert to the type {} {}", type_name::<E>(), type_name::<A>());
         if !self.event_is::<E>() {
             // trace!("is_into: event mismatch");
@@ -59,7 +64,9 @@ impl BusEvent {
         Some((event.downcast().unwrap(), args.downcast().unwrap()))
     }
 
-    pub fn into_raw(mut self) -> Option<(Box<dyn Any + Send + 'static>, Box<dyn Any + Send + 'static>)> {
+    pub fn into_raw(
+        mut self,
+    ) -> Option<(Box<dyn Any + Send + 'static>, Box<dyn Any + Send + 'static>)> {
         let event = self.event.take()?;
         let args = self.args.take()?;
         Some((event, args))
