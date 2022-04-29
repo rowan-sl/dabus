@@ -1,24 +1,23 @@
-pub mod emergency;
 pub mod sys;
+mod async_util;
 
-use std::{any::Any, cell::RefCell, pin::Pin};
+use std::any::TypeId;
+use std::cell::RefCell;
 
 use flume::{Receiver, Sender};
-use futures::{
-    task::{Context, Poll},
-    Future, FutureExt,
-};
 use uuid::Uuid;
 
 use crate::event::BusEvent;
 use crate::interface::BusInterface;
-use crate::stop::BusStop;
+use crate::stop::{BusStop, BusStopMech};
+use async_util::{OneOf, OneOfResult};
+
 
 #[derive(Debug)]
 pub struct DABus {
     global_event_recv: Receiver<(BusEvent, Sender<BusEvent>)>,
     global_event_send: Sender<(BusEvent, Sender<BusEvent>)>,
-    registered_stops: RefCell<Vec<Box<dyn BusStop>>>,
+    registered_stops: RefCell<Vec<(Box<dyn BusStopMech>, TypeId)>>,
 }
 
 impl DABus {
@@ -33,17 +32,24 @@ impl DABus {
     }
 
     /// Registers a new stop with the bus.
-    pub fn register<B: BusStop>(&mut self, stop: B) {
-        self.registered_stops.borrow_mut().push(Box::new(stop));
+    pub fn register<B: BusStop + Send>(&mut self, stop: B) {
+        self.registered_stops.borrow_mut().push((Box::new(stop), TypeId::of::<B>()));
     }
 
-    fn find_handler_for(&self, event: &BusEvent) -> Option<Box<dyn BusStop>> {
+    // TODO implement this function once https://github.com/rust-lang/rust/issues/65991 is complete
+    // pub fn deregister<B: BusStop + Send>(&mut self) -> Option<B> {
+    //     self.registered_stops.borrow_mut().drain_filter(|stop| {
+    //         stop.1 == TypeId::of::<B>()
+    //     }).nth(0).map(|item| {*(item.0 as Box<dyn std::any::Any>).downcast().unwrap()})
+    // }
+
+    fn find_handler_for(&self, event: &BusEvent) -> Option<(Box<dyn BusStopMech>, TypeId)> {
         let mut who_asked = self
             .registered_stops
             .borrow_mut()
             .drain_filter(|stop| {
                 // debug!("checking weather handler matches event: {:?}", stop);
-                let matches = stop.cares(&*event);
+                let matches = stop.0.cares(&*event);
                 // debug!("Handler matches event: {}", matches);
                 matches
             })
@@ -58,11 +64,15 @@ impl DABus {
     }
 
     #[async_recursion::async_recursion(?Send)]
-    async fn fire_raw(&mut self, handler: &mut Box<dyn BusStop>, mut event: BusEvent) -> BusEvent {
+    async fn fire_raw(
+        &mut self,
+        handler: &mut Box<dyn BusStopMech>,
+        mut event: BusEvent,
+    ) -> BusEvent {
         let id = event.uuid();
 
         let interface = BusInterface::new(self.global_event_send.clone());
-        let mut stop_fut_container = Some(handler.event(&mut event, interface));
+        let mut stop_fut_container = Some(handler.raw_event(&mut event, interface));
         loop {
             let stop_fut = stop_fut_container.take().unwrap();
             let receiver = self.global_event_recv.clone();
@@ -83,7 +93,7 @@ impl DABus {
                     let mut handler = self.find_handler_for(&recvd.0).unwrap();
                     recvd
                         .1
-                        .send(self.fire_raw(&mut handler, recvd.0).await)
+                        .send(self.fire_raw(&mut handler.0, recvd.0).await)
                         .unwrap();
                     stop_fut_container = Some(stop_fut);
                     continue;
@@ -95,11 +105,7 @@ impl DABus {
         }
     }
 
-    pub async fn fire<E: Any + Send + 'static, A: Any + Send + 'static, R: Any + 'static>(
-        &mut self,
-        event: E,
-        args: A,
-    ) -> R {
+    pub async fn fire<S: BusStop>(&mut self, event: S::Event, args: S::Args) -> S::Response {
         let id = Uuid::new_v4();
         let event = BusEvent::new(event, args, id);
         // info!("type of fired event: {} {} {}", type_name::<E>(), type_name::<A>(), type_name::<R>());
@@ -108,8 +114,9 @@ impl DABus {
             .find_handler_for(&event)
             .expect("no handler for this message type exists");
 
+        // look at this *very* clean code
         let res = *self
-            .fire_raw(&mut handler, event)
+            .fire_raw(&mut handler.0, event)
             .await
             .into_raw()
             .unwrap()
@@ -123,41 +130,3 @@ impl DABus {
     }
 }
 
-struct OneOf<F0: Future, F1: Future> {
-    fut0: Option<F0>,
-    fut1: Option<F1>,
-}
-
-impl<F0: Future, F1: Future> OneOf<F0, F1> {
-    pub fn new(f0: F0, f1: F1) -> Self {
-        Self {
-            fut0: Some(f0),
-            fut1: Some(f1),
-        }
-    }
-}
-
-enum OneOfResult<F0: Future, F1: Future> {
-    F0(F0::Output, F1),
-    F1(F0, F1::Output),
-    All(F0::Output, F1::Output),
-}
-
-impl<F0: Future + Unpin, F1: Future + Unpin> Future for OneOf<F0, F1> {
-    type Output = OneOfResult<F0, F1>;
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match (
-            self.fut0.as_mut().unwrap().poll_unpin(cx),
-            self.fut1.as_mut().unwrap().poll_unpin(cx),
-        ) {
-            (Poll::Pending, Poll::Pending) => Poll::Pending,
-            (Poll::Ready(f0), Poll::Pending) => {
-                Poll::Ready(OneOfResult::F0(f0, self.fut1.take().unwrap()))
-            }
-            (Poll::Pending, Poll::Ready(f1)) => {
-                Poll::Ready(OneOfResult::F1(self.fut0.take().unwrap(), f1))
-            }
-            (Poll::Ready(f0), Poll::Ready(f1)) => Poll::Ready(OneOfResult::All(f0, f1)),
-        }
-    }
-}
