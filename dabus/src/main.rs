@@ -28,7 +28,8 @@ async fn main() {
     bus.register(HelloHandler {});
     bus.register(Printer {});
     bus.fire::<HelloHandler>(HelloMessage, "Hello, World!".to_string())
-        .await;
+        .await
+        .unwrap();
 }
 
 #[derive(Debug)]

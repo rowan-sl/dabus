@@ -18,7 +18,7 @@ pub trait BusStop: Debug /* deal with it */ + Any /* i swear to god */ {
 
 #[async_trait]
 pub(crate) trait BusStopMech: Debug + Any {
-    async fn raw_event(&mut self, event: &mut BusEvent, bus: BusInterface) -> BusEvent;
+    async fn raw_event(&mut self, event: BusEvent, bus: BusInterface) -> BusEvent;
     fn cares(&mut self, event: &BusEvent) -> bool;
 }
 
@@ -31,7 +31,7 @@ where
     R: Any + Send + 'static,
     T: BusStop<Event = E, Args = A, Response = R> + Send,
 {
-    async fn raw_event(&mut self, event: &mut BusEvent, bus: BusInterface) -> BusEvent {
+    async fn raw_event(&mut self, event: BusEvent, bus: BusInterface) -> BusEvent {
         let id = event.uuid();
         let (event, args) = event.is_into::<E, A>().unwrap();
 

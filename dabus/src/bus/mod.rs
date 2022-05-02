@@ -58,7 +58,7 @@ impl DABus {
             0 => None,
             1 => who_asked.pop(),
             _ => {
-                panic!("More than one handler asked!!!!");
+                panic!("More than one handler matched a event!");
             }
         }
     }
@@ -67,12 +67,12 @@ impl DABus {
     async fn fire_raw(
         &mut self,
         handler: &mut Box<dyn BusStopMech>,
-        mut event: BusEvent,
+        event: BusEvent,
     ) -> BusEvent {
         let id = event.uuid();
 
         let interface = BusInterface::new(self.global_event_send.clone());
-        let mut stop_fut_container = Some(handler.raw_event(&mut event, interface));
+        let mut stop_fut_container = Some(handler.raw_event(event, interface));
         loop {
             let stop_fut = stop_fut_container.take().unwrap();
             let receiver = self.global_event_recv.clone();
@@ -105,28 +105,42 @@ impl DABus {
         }
     }
 
-    pub async fn fire<S: BusStop>(&mut self, event: S::Event, args: S::Args) -> S::Response {
+    pub async fn fire<S: BusStop>(&mut self, event: S::Event, args: S::Args) -> Result<S::Response, FireEventError> {
         let id = Uuid::new_v4();
         let event = BusEvent::new(event, args, id);
         // info!("type of fired event: {} {} {}", type_name::<E>(), type_name::<A>(), type_name::<R>());
         // debug!("checking for handler for the new message");
-        let mut handler = self
-            .find_handler_for(&event)
-            .expect("no handler for this message type exists");
+        let mut handler = match self
+            .find_handler_for(&event) {
+            Some(handler) => handler,
+            None => return Err(FireEventError::NoHandler),
+        };
 
         // look at this *very* clean code
-        let res = *self
+        let res: S::Response = match self
             .fire_raw(&mut handler.0, event)
             .await
             .into_raw()
-            .unwrap()
             .1
-            .downcast()
-            .unwrap();
+            .downcast() {
+            Ok(expected) => *expected,
+            Err(..) => {
+                warn!("Mismatched return types are allways dropped, this could cause issues");
+                return Err(FireEventError::InvalidReturnType);
+            }
+        };
 
         self.registered_stops.borrow_mut().push(handler);
 
-        res
+        Ok(res)
     }
 }
 
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum FireEventError {
+    #[error("Could not find an appropreate handler for this event")]
+    NoHandler,
+    /// note: this will be phased out in the future, once handler selection relies on the handler type
+    #[error("Handler did not return the specified return type!")]
+    InvalidReturnType,
+}
