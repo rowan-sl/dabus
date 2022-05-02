@@ -5,7 +5,6 @@ use futures::{
     Future, FutureExt,
 };
 
-
 pub struct OneOf<F0: Future, F1: Future> {
     fut0: Option<F0>,
     fut1: Option<F1>,

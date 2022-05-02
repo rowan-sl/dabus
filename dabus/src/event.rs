@@ -55,7 +55,11 @@ impl BusEvent {
 
     pub fn into_raw(
         self,
-    ) -> (Box<dyn Any + Send + 'static>, Box<dyn Any + Send + 'static>, Uuid) {
+    ) -> (
+        Box<dyn Any + Send + 'static>,
+        Box<dyn Any + Send + 'static>,
+        Uuid,
+    ) {
         (self.event, self.args, self.id)
     }
 

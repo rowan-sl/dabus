@@ -1,22 +1,8 @@
-#![feature(drain_filter)]
-
-pub mod bus;
-pub mod event;
-pub mod interface;
-pub mod prelude;
-pub mod stop;
-
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate async_trait;
-
 use std::fmt::Debug;
 
-pub use bus::DABus;
-pub use interface::BusInterface;
-pub use stop::BusStop;
+use async_trait::async_trait;
 
+use dabus::{BusInterface, BusStop, DABus};
 
 #[tokio::main]
 async fn main() {

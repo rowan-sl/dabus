@@ -1,5 +1,5 @@
-pub mod sys;
 mod async_util;
+pub mod sys;
 
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -11,7 +11,6 @@ use crate::event::BusEvent;
 use crate::interface::BusInterface;
 use crate::stop::{BusStop, BusStopMech};
 use async_util::{OneOf, OneOfResult};
-
 
 #[derive(Debug)]
 pub struct DABus {
@@ -33,7 +32,9 @@ impl DABus {
 
     /// Registers a new stop with the bus.
     pub fn register<B: BusStop + Send>(&mut self, stop: B) {
-        self.registered_stops.borrow_mut().push((Box::new(stop), TypeId::of::<B>()));
+        self.registered_stops
+            .borrow_mut()
+            .push((Box::new(stop), TypeId::of::<B>()));
     }
 
     // TODO implement this function once https://github.com/rust-lang/rust/issues/65991 is complete
@@ -64,11 +65,7 @@ impl DABus {
     }
 
     #[async_recursion::async_recursion(?Send)]
-    async fn fire_raw(
-        &mut self,
-        handler: &mut Box<dyn BusStopMech>,
-        event: BusEvent,
-    ) -> BusEvent {
+    async fn fire_raw(&mut self, handler: &mut Box<dyn BusStopMech>, event: BusEvent) -> BusEvent {
         let id = event.uuid();
 
         let interface = BusInterface::new(self.global_event_send.clone());
@@ -105,13 +102,16 @@ impl DABus {
         }
     }
 
-    pub async fn fire<S: BusStop>(&mut self, event: S::Event, args: S::Args) -> Result<S::Response, FireEventError> {
+    pub async fn fire<S: BusStop>(
+        &mut self,
+        event: S::Event,
+        args: S::Args,
+    ) -> Result<S::Response, FireEventError> {
         let id = Uuid::new_v4();
         let event = BusEvent::new(event, args, id);
         // info!("type of fired event: {} {} {}", type_name::<E>(), type_name::<A>(), type_name::<R>());
         // debug!("checking for handler for the new message");
-        let mut handler = match self
-            .find_handler_for(&event) {
+        let mut handler = match self.find_handler_for(&event) {
             Some(handler) => handler,
             None => return Err(FireEventError::NoHandler),
         };
@@ -122,7 +122,8 @@ impl DABus {
             .await
             .into_raw()
             .1
-            .downcast() {
+            .downcast()
+        {
             Ok(expected) => *expected,
             Err(..) => {
                 warn!("Mismatched return types are allways dropped, this could cause issues");
