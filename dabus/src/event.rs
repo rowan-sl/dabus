@@ -2,6 +2,16 @@ use std::any::{Any, TypeId};
 
 use uuid::Uuid;
 
+use crate::util::possibly_clone::PossiblyClone;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventType {
+    /// an event that requires a response
+    Query,
+    /// a event that requires no response
+    Send,
+}
+
 #[derive(Debug)]
 pub struct BusEvent {
     /// args the event was called with
@@ -53,6 +63,16 @@ impl BusEvent {
         Ok((event.downcast().unwrap(), args.downcast().unwrap()))
     }
 
+    pub fn try_ref_args<'a, A: Any + Send + 'static>(&'a self) -> Result<&'a A, ()> {
+        if !self.args_are::<A>() {
+            return Err(());
+        }
+        match self.args.downcast_ref::<A>() {
+            Some(a) => Ok(a),
+            None => Err(()),
+        }
+    }
+
     pub fn into_raw(
         self,
     ) -> (
@@ -65,5 +85,41 @@ impl BusEvent {
 
     pub fn uuid(&self) -> Uuid {
         self.id
+    }
+
+    pub fn clone_event<E: Clone + Any + Send + 'static>(&self) -> Result<E, ()> {
+        match self.event.downcast_ref::<E>() {
+            Some(event) => Ok(event.clone()),
+            None => Err(()),
+        }
+    }
+
+    pub fn try_clone_event<
+        E: Clone + Any + Send + 'static,
+        A: PossiblyClone + Any + Send + 'static,
+    >(
+        &self,
+    ) -> Result<Self, ()> {
+        let new_event = match self.event.downcast_ref::<E>() {
+            Some(event) => event.clone(),
+            None => return Err(()),
+        };
+
+        let new_args = match self.event.downcast_ref::<A>() {
+            Some(event) => {
+                if A::IS_CLONE {
+                    event.try_clone()
+                } else {
+                    return Err(());
+                }
+            }
+            None => return Err(()),
+        };
+
+        Ok(Self {
+            event: Box::new(new_event),
+            args: Box::new(new_args),
+            id: self.id.clone(),
+        })
     }
 }

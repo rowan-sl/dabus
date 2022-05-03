@@ -4,18 +4,28 @@ use uuid::Uuid;
 use crate::{bus::sys::ReturnEvent, event::BusEvent, stop::BusStop};
 
 #[derive(Debug, Clone)]
+pub enum RequestType {
+    Send {
+        notifier: flume::Sender<()>,
+    },
+    Query {
+        responder: flume::Sender<BusEvent>,
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct BusInterface {
-    event_queue: Sender<(BusEvent, flume::Sender<BusEvent>)>,
+    event_queue: Sender<(BusEvent, RequestType)>,
 }
 
 impl BusInterface {
-    pub(crate) fn new(sender: Sender<(BusEvent, flume::Sender<BusEvent>)>) -> Self {
+    pub(crate) fn new(sender: Sender<(BusEvent, RequestType)>) -> Self {
         Self {
             event_queue: sender,
         }
     }
 
-    pub async fn fire<S: BusStop>(&mut self, event: S::Event, args: S::Args) -> S::Response {
+    pub async fn query<S: BusStop>(&mut self, event: S::Event, args: S::Args) -> S::Response {
         // unbounded
         debug_assert!(self.event_queue.capacity().is_none());
 
@@ -25,7 +35,7 @@ impl BusInterface {
         let msg = BusEvent::new(event, args, id);
 
         self.event_queue
-            .send((msg, response_tx))
+            .send((msg, RequestType::Query { responder: response_tx }))
             .expect("BusStops must be destroyed before the central handler!");
 
         *response_rx
@@ -35,5 +45,22 @@ impl BusInterface {
             .is_into::<ReturnEvent, S::Response>()
             .unwrap()
             .1
+    }
+
+    pub async fn send<S: BusStop>(&mut self, event: S::Event, args: S::Args) {
+
+        let (notifier_tx, notifier_rx) = flume::bounded(1);
+
+        let id = Uuid::new_v4();
+        let msg = BusEvent::new(event, args, id);
+
+        self.event_queue
+            .send((msg, RequestType::Send { notifier: notifier_tx }))
+            .expect("BusStops must be destroyed before the central handler!");
+
+        notifier_rx
+            .recv_async()
+            .await
+            .expect("sender sent a response");
     }
 }

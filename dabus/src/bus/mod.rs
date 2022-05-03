@@ -7,21 +7,21 @@ use std::cell::RefCell;
 use flume::{Receiver, Sender};
 use uuid::Uuid;
 
-use crate::event::BusEvent;
-use crate::interface::BusInterface;
-use crate::stop::{BusStop, BusStopMech};
+use crate::event::{BusEvent, EventType};
+use crate::interface::{BusInterface, RequestType};
+use crate::stop::{BusStop, BusStopMech, EventActionType, RawEventReturn};
 use async_util::{OneOf, OneOfResult};
 
 #[derive(Debug)]
 pub struct DABus {
-    global_event_recv: Receiver<(BusEvent, Sender<BusEvent>)>,
-    global_event_send: Sender<(BusEvent, Sender<BusEvent>)>,
+    global_event_recv: Receiver<(BusEvent, RequestType)>,
+    global_event_send: Sender<(BusEvent, RequestType)>,
     registered_stops: RefCell<Vec<(Box<dyn BusStopMech>, TypeId)>>,
 }
 
 impl DABus {
     pub fn new() -> Self {
-        let (global_event_send, global_event_recv): (_, Receiver<(BusEvent, Sender<BusEvent>)>) =
+        let (global_event_send, global_event_recv): (_, Receiver<(BusEvent, RequestType)>) =
             flume::unbounded();
         Self {
             global_event_recv,
@@ -44,33 +44,97 @@ impl DABus {
     //     }).nth(0).map(|item| {*(item.0 as Box<dyn std::any::Any>).downcast().unwrap()})
     // }
 
-    fn find_handler_for(&self, event: &BusEvent) -> Option<(Box<dyn BusStopMech>, TypeId)> {
-        let mut who_asked = self
+    fn get_handlers(
+        &mut self,
+        event: &BusEvent,
+        etype: EventType,
+    ) -> Result<Vec<(Box<dyn BusStopMech>, TypeId, EventActionType)>, GetHandlersError> {
+        let mut handlers = self
             .registered_stops
             .borrow_mut()
             .drain_filter(|stop| {
-                // debug!("checking weather handler matches event: {:?}", stop);
-                let matches = stop.0.cares(&*event);
-                // debug!("Handler matches event: {}", matches);
-                matches
+                if stop.0.matches(event) {
+                    let action = stop.0.raw_action(event, etype);
+                    EventActionType::Ignore != action
+                } else {
+                    false
+                }
+            })
+            .map(|(mut stop, stop_id)| {
+                let action = stop.raw_action(event, etype);
+                (stop, stop_id, action)
             })
             .collect::<Vec<_>>();
-        match who_asked.len() {
-            0 => None,
-            1 => who_asked.pop(),
-            _ => {
-                panic!("More than one handler matched a event!");
+        if handlers.is_empty() {
+            Err(GetHandlersError::NoHandler)
+        } else {
+            handlers.sort_by(|a, b| {
+                use std::cmp::Ordering::{Equal, Greater, Less};
+                use EventActionType::{Consume, HandleCopy, HandleRef, Ignore};
+                match (a.2, b.2) {
+                    (Ignore, Ignore) => Equal,
+                    (Ignore, _) => Less,
+                    (_, Ignore) => Greater,
+                    (Consume, Consume) => Equal,
+                    (_, Consume) => Less,
+                    (Consume, _) => Greater,
+                    (HandleCopy, HandleRef) => Equal,
+                    (HandleRef, HandleCopy) => Equal,
+                    (HandleCopy, HandleCopy) => Equal,
+                    (HandleRef, HandleRef) => Equal,
+                }
+            });
+            if handlers.iter().fold(0usize, |mut acc, elem| {
+                if elem.2 == EventActionType::Consume {
+                    acc += 1;
+                }
+                acc
+            }) > 1
+            {
+                self.registered_stops
+                    .borrow_mut()
+                    .extend(&mut handlers.into_iter().map(|(a, b, _)| (a, b)));
+                Err(GetHandlersError::MultipleConsume)
+            } else {
+                match etype {
+                    EventType::Query => {
+                        if handlers.len() > 1 {
+                            self.registered_stops
+                                .borrow_mut()
+                                .extend(&mut handlers.into_iter().map(|(a, b, _)| (a, b)));
+                            Err(GetHandlersError::MultipleQuery)
+                        } else {
+                            match handlers[0].2 {
+                                EventActionType::Ignore => {
+                                    self.registered_stops
+                                        .borrow_mut()
+                                        .extend(&mut handlers.into_iter().map(|(a, b, _)| (a, b)));
+                                    return Err(GetHandlersError::NoHandler);
+                                }
+                                _ => {}
+                            }
+                            Ok(handlers)
+                        }
+                    }
+                    EventType::Send => Ok(handlers),
+                }
             }
         }
     }
 
     #[async_recursion::async_recursion(?Send)]
-    async fn fire_raw(&mut self, handler: &mut Box<dyn BusStopMech>, event: BusEvent) -> BusEvent {
-        let id = event.uuid();
+    pub async fn query_raw(
+        &mut self,
+        raw_event: BusEvent,
+    ) -> Result<BusEvent, QueryEventError> {
+        let mut handler = self.get_handlers(&raw_event, EventType::Query)?.remove(0);
+
+        let id = raw_event.uuid();
+        let mut event_container = Some(raw_event);
 
         let interface = BusInterface::new(self.global_event_send.clone());
-        let mut stop_fut_container = Some(handler.raw_event(event, interface));
-        loop {
+        let mut stop_fut_container = Some(handler.0.raw_event(&mut event_container, EventType::Query, interface));
+        let response = 'poll: loop {
             let stop_fut = stop_fut_container.take().unwrap();
             let receiver = self.global_event_recv.clone();
             let recv_fut = receiver.recv_async();
@@ -81,45 +145,50 @@ impl DABus {
 
                     drop(recv_fut); // we dont need this, nothing will be lost
 
-                    assert!(stop_result.event_is::<sys::ReturnEvent>());
-                    assert!(stop_result.uuid() == id);
-                    return stop_result;
+                    let response = match stop_result {
+                        RawEventReturn::Ignored => unreachable!(),
+                        RawEventReturn::Processed => unreachable!(),
+                        RawEventReturn::Response(response) => response,
+                    };
+
+                    assert!(response.event_is::<sys::ReturnEvent>());
+                    assert_eq!(response.uuid(), id);
+                    break 'poll response;
                 }
                 OneOfResult::F1(stop_fut, recv_result) => {
                     let recvd = recv_result.unwrap();
-                    let mut handler = self.find_handler_for(&recvd.0).unwrap();
-                    recvd
-                        .1
-                        .send(self.fire_raw(&mut handler.0, recvd.0).await)
-                        .unwrap();
-                    stop_fut_container = Some(stop_fut);
-                    continue;
+                    match recvd.1 {
+                        RequestType::Query { responder } => {
+                            responder.send(self.query_raw(recvd.0).await?).unwrap();
+                            stop_fut_container = Some(stop_fut)
+                        }
+                        RequestType::Send { notifier: _ } => {
+                            todo!();
+                        }
+                    }
                 }
                 OneOfResult::All(_stop_result, _recv_result) => {
                     unreachable!(); // probably
                 }
             };
-        }
+        };
+        drop(stop_fut_container);//to please the gods
+        self.registered_stops.borrow_mut().push((handler.0, handler.1));
+        Ok(response)
     }
 
-    pub async fn fire<S: BusStop>(
+    pub async fn query<S: BusStop>(
         &mut self,
         event: S::Event,
         args: S::Args,
-    ) -> Result<S::Response, FireEventError> {
+    ) -> Result<S::Response, QueryEventError> {
         let id = Uuid::new_v4();
         let event = BusEvent::new(event, args, id);
-        // info!("type of fired event: {} {} {}", type_name::<E>(), type_name::<A>(), type_name::<R>());
-        // debug!("checking for handler for the new message");
-        let mut handler = match self.find_handler_for(&event) {
-            Some(handler) => handler,
-            None => return Err(FireEventError::NoHandler),
-        };
 
         // look at this *very* clean code
         let res: S::Response = match self
-            .fire_raw(&mut handler.0, event)
-            .await
+            .query_raw(event)
+            .await?
             .into_raw()
             .1
             .downcast()
@@ -127,21 +196,29 @@ impl DABus {
             Ok(expected) => *expected,
             Err(..) => {
                 warn!("Mismatched return types are allways dropped, this could cause issues");
-                return Err(FireEventError::InvalidReturnType);
+                return Err(QueryEventError::InvalidReturnType);
             }
         };
-
-        self.registered_stops.borrow_mut().push(handler);
 
         Ok(res)
     }
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
-pub enum FireEventError {
-    #[error("Could not find an appropreate handler for this event")]
-    NoHandler,
+pub enum QueryEventError {
+    #[error("Could not find an appropreate handler for this event: {0}")]
+    Handler(#[from] GetHandlersError),
     /// note: this will be phased out in the future, once handler selection relies on the handler type
     #[error("Handler did not return the specified return type!")]
     InvalidReturnType,
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum GetHandlersError {
+    #[error("Multiple consume level handlers!")]
+    MultipleConsume,
+    #[error("Multiple handlers responded in query mode!")]
+    MultipleQuery,
+    #[error("Could not find a handler for the event!")]
+    NoHandler,
 }

@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use async_trait::async_trait;
 
-use dabus::{BusInterface, BusStop, DABus};
+use dabus::{BusInterface, BusStop, DABus, stop::{EventArgs, EventActionType}, event::EventType};
 
 #[tokio::main]
 async fn main() {
@@ -13,12 +13,14 @@ async fn main() {
     let mut bus = DABus::new();
     bus.register(HelloHandler {});
     bus.register(Printer {});
-    bus.fire::<HelloHandler>(HelloMessage, "Hello, World!".to_string())
-        .await
-        .unwrap();
+    for _ in 0..10 {
+        bus.query::<HelloHandler>(HelloMessage, "Hello, World!".to_string())
+            .await
+            .unwrap();
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct PrintMessage;
 #[derive(Debug)]
 struct Printer {}
@@ -26,23 +28,46 @@ struct Printer {}
 #[async_trait]
 impl BusStop for Printer {
     type Event = PrintMessage;
-    type Args = Box<dyn Debug + Send>;
+    type Args = Box<dyn Debug + Sync + Send>;
     type Response = String;
 
-    async fn event(
+    /// handle a query-type event
+    async fn query_event<'a>(
         &mut self,
-        _event: Self::Event,
-        args: Self::Args,
+        args: EventArgs<'a, Self::Args>,
         _bus: BusInterface,
     ) -> Self::Response {
-        format!("{:#?}", args)
+        if let EventArgs::Consume(args) = args {
+            format!("{:?}", args)
+        } else {
+            panic!()
+        }
+    }
+
+    /// handle a send-type event
+    async fn send_event<'a>(
+        &mut self,
+        _args: EventArgs<'a, Self::Args>,
+        _bus: BusInterface,
+    ) {}
+
+    /// after a type match check, how should this event be handled
+    fn action(
+        &mut self,
+        _event: Self::Event,
+        etype: EventType,
+    ) -> EventActionType {
+        match etype {
+            EventType::Query => EventActionType::Consume,
+            EventType::Send => EventActionType::Ignore,
+        }
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct HelloMessage;
 #[derive(Debug)]
-struct HelloMessage;
-#[derive(Debug)]
-struct HelloHandler {}
+pub struct HelloHandler {}
 
 #[async_trait]
 impl BusStop for HelloHandler {
@@ -50,15 +75,38 @@ impl BusStop for HelloHandler {
     type Args = String;
     type Response = ();
 
-    async fn event(
+    /// handle a query-type event
+    async fn query_event<'a>(
         &mut self,
-        _event: Self::Event,
-        args: Self::Args,
+        args: EventArgs<'a, Self::Args>,
         mut bus: BusInterface,
     ) -> Self::Response {
-        println!(
-            "{}",
-            bus.fire::<Printer>(PrintMessage, Box::new(args)).await
-        );
+        if let EventArgs::Consume(args) = args {
+            println!(
+                "{}",
+                bus.query::<Printer>(PrintMessage, Box::new(args)).await
+            );
+        } else {
+            panic!()
+        }
+    }
+
+    /// handle a send-type event
+    async fn send_event<'a>(
+        &mut self,
+        _args: EventArgs<'a, Self::Args>,
+        _bus: BusInterface,
+    ) {}
+
+    /// after a type match check, how should this event be handled
+    fn action(
+        &mut self,
+        _event: Self::Event,
+        etype: EventType,
+    ) -> EventActionType {
+        match etype {
+            EventType::Query => EventActionType::Consume,
+            EventType::Send => EventActionType::Ignore,
+        }
     }
 }
