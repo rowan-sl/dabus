@@ -5,12 +5,8 @@ use crate::{bus::sys::ReturnEvent, event::BusEvent, stop::BusStop};
 
 #[derive(Debug, Clone)]
 pub enum RequestType {
-    Send {
-        notifier: flume::Sender<()>,
-    },
-    Query {
-        responder: flume::Sender<BusEvent>,
-    }
+    Send { notifier: flume::Sender<()> },
+    Query { responder: flume::Sender<BusEvent> },
 }
 
 #[derive(Debug, Clone)]
@@ -35,7 +31,12 @@ impl BusInterface {
         let msg = BusEvent::new(event, args, id);
 
         self.event_queue
-            .send((msg, RequestType::Query { responder: response_tx }))
+            .send((
+                msg,
+                RequestType::Query {
+                    responder: response_tx,
+                },
+            ))
             .expect("BusStops must be destroyed before the central handler!");
 
         *response_rx
@@ -48,14 +49,18 @@ impl BusInterface {
     }
 
     pub async fn send<S: BusStop>(&mut self, event: S::Event, args: S::Args) {
-
         let (notifier_tx, notifier_rx) = flume::bounded(1);
 
         let id = Uuid::new_v4();
         let msg = BusEvent::new(event, args, id);
 
         self.event_queue
-            .send((msg, RequestType::Send { notifier: notifier_tx }))
+            .send((
+                msg,
+                RequestType::Send {
+                    notifier: notifier_tx,
+                },
+            ))
             .expect("BusStops must be destroyed before the central handler!");
 
         notifier_rx

@@ -5,6 +5,7 @@ use std::any::TypeId;
 use std::cell::RefCell;
 
 use flume::{Receiver, Sender};
+use futures::FutureExt;
 use uuid::Uuid;
 
 use crate::event::{BusEvent, EventType};
@@ -114,37 +115,35 @@ impl DABus {
     }
 
     #[async_recursion::async_recursion(?Send)]
-    async fn query_raw(
-        &mut self,
-        raw_event: BusEvent,
-    ) -> Result<BusEvent, FireEventError> {
+    async fn query_raw(&mut self, raw_event: BusEvent) -> Result<BusEvent, FireEventError> {
         let mut handler = self.get_handlers(&raw_event, EventType::Query)?.remove(0);
 
         let id = raw_event.uuid();
+        // not really needed here, mostly for supporting send events. holds on to the original BusEvent
         let mut event_container = Some(raw_event);
 
-        let interface = BusInterface::new(self.global_event_send.clone());
-        let mut stop_fut_container = Some(handler.0.raw_event(&mut event_container, EventType::Query, interface));
+        let mut stop_fut_container = Some(handler.0.raw_event(
+            &mut event_container,
+            EventType::Query,
+            BusInterface::new(self.global_event_send.clone()),
+        ));
+
         let response = 'poll: loop {
-            let stop_fut = stop_fut_container.take().unwrap();
-            let receiver = self.global_event_recv.clone();
-            let recv_fut = receiver.recv_async();
-            let bolth_fut = OneOf::new(stop_fut, recv_fut);
-            match bolth_fut.await {
-                OneOfResult::F0(stop_result, recv_fut) => {
+            match OneOf::new(
+                stop_fut_container.take().unwrap(),
+                self.global_event_recv.clone().into_recv_async(),
+            ).await {
+                OneOfResult::F0(stop_result, ..) => {
                     // this means that the process is complete, and the result is done
 
-                    drop(recv_fut); // we dont need this, nothing will be lost
-
-                    let response = match stop_result {
-                        RawEventReturn::Ignored => unreachable!(),
-                        RawEventReturn::Processed => unreachable!(),
-                        RawEventReturn::Response(response) => response,
+                    match stop_result {
+                        RawEventReturn::Response(response) => {
+                            debug_assert!(response.event_is::<sys::ReturnEvent>());
+                            debug_assert_eq!(response.uuid(), id);
+                            break 'poll response;
+                        }
+                        _ => unreachable!(),
                     };
-
-                    assert!(response.event_is::<sys::ReturnEvent>());
-                    assert_eq!(response.uuid(), id);
-                    break 'poll response;
                 }
                 OneOfResult::F1(stop_fut, recv_result) => {
                     let recvd = recv_result.unwrap();
@@ -160,13 +159,13 @@ impl DABus {
                         }
                     }
                 }
-                OneOfResult::All(_stop_result, _recv_result) => {
-                    unreachable!(); // probably
-                }
+                OneOfResult::All(..) => unreachable!()
             };
         };
-        drop(stop_fut_container);//to please the gods
-        self.registered_stops.borrow_mut().push((handler.0, handler.1));
+        drop(stop_fut_container); //to please the gods
+        self.registered_stops
+            .borrow_mut()
+            .push((handler.0, handler.1));
         Ok(response)
     }
 
@@ -179,13 +178,7 @@ impl DABus {
         let event = BusEvent::new(event, args, id);
 
         // look at this *very* clean code
-        let res: S::Response = match self
-            .query_raw(event)
-            .await?
-            .into_raw()
-            .1
-            .downcast()
-        {
+        let res: S::Response = match self.query_raw(event).await?.into_raw().1.downcast() {
             Ok(expected) => *expected,
             Err(..) => {
                 warn!("Mismatched return types are allways dropped, this could cause issues");
@@ -197,10 +190,7 @@ impl DABus {
     }
 
     #[async_recursion::async_recursion(?Send)]
-    async fn send_raw(
-        &mut self,
-        raw_event: BusEvent,
-    ) -> Result<(), FireEventError> {
+    async fn send_raw(&mut self, raw_event: BusEvent) -> Result<(), FireEventError> {
         let mut handler_ids = vec![];
         for (handler, id, method) in self.get_handlers(&raw_event, EventType::Send)? {
             self.registered_stops.borrow_mut().push((handler, id));
@@ -210,52 +200,45 @@ impl DABus {
         let mut event_container = Some(raw_event);
 
         for (handler_id, _) in handler_ids {
-            let mut handler = self.registered_stops.borrow_mut().drain_filter(|stop| {
-                stop.1 == handler_id
-            }).nth(0).unwrap();
+            let mut handler = self
+                .registered_stops
+                .borrow_mut()
+                .drain_filter(|stop| stop.1 == handler_id)
+                .nth(0)
+                .unwrap();
 
-            let interface = BusInterface::new(self.global_event_send.clone());
-            let mut stop_fut_container = Some(handler.0.raw_event(&mut event_container, EventType::Send, interface));
+            let mut stop_fut_container = Some(handler.0.raw_event(
+                &mut event_container,
+                EventType::Send,
+                BusInterface::new(self.global_event_send.clone()),
+            ));
             'poll: loop {
-                let stop_fut = stop_fut_container.take().unwrap();
-                let receiver = self.global_event_recv.clone();
-                let recv_fut = receiver.recv_async();
-                let bolth_fut = OneOf::new(stop_fut, recv_fut);
-                match bolth_fut.await {
-                    OneOfResult::F0(stop_result, recv_fut) => {
-                        // this means that the process is complete, and the result is done
-
-                        drop(recv_fut); // we dont need this, nothing will be lost
-
-                        match stop_result {
-                            RawEventReturn::Ignored => unreachable!(),
-                            RawEventReturn::Processed => {},
-                            RawEventReturn::Response(..) => unreachable!(),
-                        };
-
-                        break 'poll;
-                    }
+                match OneOf::new(
+                    stop_fut_container.take().unwrap(),
+                    self.global_event_recv.clone().into_recv_async(),
+                ).await {
+                    OneOfResult::F0(..) => break 'poll,
                     OneOfResult::F1(stop_fut, recv_result) => {
-                        let recvd = recv_result.unwrap();
-                        match recvd.1 {
+                        let (event, rtype) = recv_result.unwrap();
+                        match rtype {
                             RequestType::Query { responder } => {
-                                responder.send(self.query_raw(recvd.0).await?).unwrap();
+                                responder.send(self.query_raw(event).await?).unwrap();
                                 stop_fut_container = Some(stop_fut)
                             }
                             RequestType::Send { notifier } => {
-                                self.send_raw(recvd.0).await?;
+                                self.send_raw(event).await?;
                                 notifier.send(()).unwrap();
                                 stop_fut_container = Some(stop_fut)
                             }
                         }
                     }
-                    OneOfResult::All(_stop_result, _recv_result) => {
-                        unreachable!(); // probably
-                    }
+                    OneOfResult::All(..) => unreachable!()
                 };
-            };
-            drop(stop_fut_container);//to please the gods
-            self.registered_stops.borrow_mut().push((handler.0, handler.1));
+            }
+            drop(stop_fut_container); //to please the gods
+            self.registered_stops
+                .borrow_mut()
+                .push((handler.0, handler.1));
         }
 
         Ok(())

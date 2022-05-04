@@ -2,7 +2,11 @@ use std::fmt::Debug;
 
 use async_trait::async_trait;
 
-use dabus::{BusInterface, BusStop, DABus, stop::{EventArgs, EventActionType}, event::EventType};
+use dabus::{
+    event::EventType,
+    stop::{EventActionType, EventArgs},
+    BusInterface, BusStop, DABus,
+};
 
 #[tokio::main]
 async fn main() {
@@ -37,14 +41,11 @@ impl BusStop for Printer2 {
         &mut self,
         _args: EventArgs<'a, Self::Args>,
         _bus: BusInterface,
-    ) -> Self::Response {}
+    ) -> Self::Response {
+    }
 
     /// handle a send-type event
-    async fn send_event<'a>(
-        &mut self,
-        args: EventArgs<'a, Self::Args>,
-        _bus: BusInterface,
-    ) {
+    async fn send_event<'a>(&mut self, args: EventArgs<'a, Self::Args>, _bus: BusInterface) {
         match args {
             EventArgs::HandleRef(to_print) => {
                 println!("{}", to_print);
@@ -54,11 +55,7 @@ impl BusStop for Printer2 {
     }
 
     /// after a type match check, how should this event be handled
-    fn action(
-        &mut self,
-        _event: Self::Event,
-        etype: EventType,
-    ) -> EventActionType {
+    fn action(&mut self, _event: Self::Event, etype: EventType) -> EventActionType {
         match etype {
             EventType::Query => EventActionType::Ignore,
             EventType::Send => EventActionType::HandleRef,
@@ -91,18 +88,10 @@ impl BusStop for Printer {
     }
 
     /// handle a send-type event
-    async fn send_event<'a>(
-        &mut self,
-        _args: EventArgs<'a, Self::Args>,
-        _bus: BusInterface,
-    ) {}
+    async fn send_event<'a>(&mut self, _args: EventArgs<'a, Self::Args>, _bus: BusInterface) {}
 
     /// after a type match check, how should this event be handled
-    fn action(
-        &mut self,
-        _event: Self::Event,
-        etype: EventType,
-    ) -> EventActionType {
+    fn action(&mut self, _event: Self::Event, etype: EventType) -> EventActionType {
         match etype {
             EventType::Query => EventActionType::Consume,
             EventType::Send => EventActionType::Ignore,
@@ -136,18 +125,10 @@ impl BusStop for HelloHandler {
     }
 
     /// handle a send-type event
-    async fn send_event<'a>(
-        &mut self,
-        _args: EventArgs<'a, Self::Args>,
-        _bus: BusInterface,
-    ) {}
+    async fn send_event<'a>(&mut self, _args: EventArgs<'a, Self::Args>, _bus: BusInterface) {}
 
     /// after a type match check, how should this event be handled
-    fn action(
-        &mut self,
-        _event: Self::Event,
-        etype: EventType,
-    ) -> EventActionType {
+    fn action(&mut self, _event: Self::Event, etype: EventType) -> EventActionType {
         match etype {
             EventType::Query => EventActionType::Consume,
             EventType::Send => EventActionType::Ignore,
