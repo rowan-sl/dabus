@@ -152,11 +152,11 @@ impl DABus {
                     let (event, rtype) = recv_result.unwrap();
                     match rtype {
                         RequestType::Query { responder } => {
-                            responder.send(self.query_raw(event).await?).unwrap();
+                            responder.send(self.handle_event(event, EventType::Query).await?.unwrap()).unwrap();
                             stop_fut_container = Some(stop_fut)
                         }
                         RequestType::Send { notifier } => {
-                            self.send_raw(event).await?;
+                            self.handle_event(event, EventType::Send).await?;
                             notifier.send(()).unwrap();
                             stop_fut_container = Some(stop_fut)
                         }
@@ -172,40 +172,9 @@ impl DABus {
         Ok(response)
     }
 
-    async fn query_raw(&mut self, raw_event: BusEvent) -> Result<BusEvent, FireEventError> {
-        let handler = self.get_handlers(&raw_event, EventType::Query)?.remove(0);
-
-        // not really needed here, mostly for supporting send events. holds on to the original BusEvent
-        let mut event_container = Some(raw_event);
-
-        let response = self.handle_event_inner(&mut event_container, (handler.0, handler.1), EventType::Query).await?.unwrap();
-
-        Ok(response)
-    }
-
-    pub async fn query<S: BusStop>(
-        &mut self,
-        event: S::Event,
-        args: S::Args,
-    ) -> Result<S::Response, FireEventError> {
-        let id = Uuid::new_v4();
-        let event = BusEvent::new(event, args, id);
-
-        // look at this *very* clean code
-        let res: S::Response = match self.query_raw(event).await?.into_raw().1.downcast() {
-            Ok(expected) => *expected,
-            Err(..) => {
-                warn!("Mismatched return types are allways dropped, this could cause issues");
-                return Err(FireEventError::InvalidReturnType);
-            }
-        };
-
-        Ok(res)
-    }
-
-    async fn send_raw(&mut self, raw_event: BusEvent) -> Result<(), FireEventError> {
+    async fn handle_event(&mut self, raw_event: BusEvent, etype: EventType) -> Result<Option<BusEvent>, FireEventError> {
         let mut handler_ids = vec![];
-        for (handler, id, method) in self.get_handlers(&raw_event, EventType::Send)? {
+        for (handler, id, method) in self.get_handlers(&raw_event, etype)? {
             self.registered_stops.borrow_mut().push((handler, id));
             handler_ids.push((id, method));
         }
@@ -220,10 +189,36 @@ impl DABus {
                 .nth(0)
                 .unwrap();
 
-            self.handle_event_inner(&mut event_container, handler, EventType::Send).await?;
+            match self.handle_event_inner(&mut event_container, handler, etype).await? {
+                Some(response) => {
+                    // it must have been a query event, so there wont be any more reponses
+                    return Ok(Some(response));
+                }
+                None => {}
+            }
         }
 
-        Ok(())
+        Ok(None)
+    }
+
+    pub async fn query<S: BusStop>(
+        &mut self,
+        event: S::Event,
+        args: S::Args,
+    ) -> Result<S::Response, FireEventError> {
+        let id = Uuid::new_v4();
+        let event = BusEvent::new(event, args, id);
+
+        // look at this *very* clean code
+        let res: S::Response = match self.handle_event(event, EventType::Query).await?.unwrap().into_raw().1.downcast() {
+            Ok(expected) => *expected,
+            Err(..) => {
+                warn!("Mismatched return types are allways dropped, this could cause issues");
+                return Err(FireEventError::InvalidReturnType);
+            }
+        };
+
+        Ok(res)
     }
 
     pub async fn send<S: BusStop>(
@@ -234,7 +229,8 @@ impl DABus {
         let id = Uuid::new_v4();
         let event = BusEvent::new(event, args, id);
 
-        self.send_raw(event).await
+        self.handle_event(event, EventType::Send).await?;
+        Ok(())
     }
 }
 
