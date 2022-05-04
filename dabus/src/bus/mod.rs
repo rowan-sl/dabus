@@ -5,7 +5,6 @@ use std::any::TypeId;
 use std::cell::RefCell;
 
 use flume::{Receiver, Sender};
-use futures::FutureExt;
 use uuid::Uuid;
 
 use crate::event::{BusEvent, EventType};
@@ -115,15 +114,15 @@ impl DABus {
     }
 
     #[async_recursion::async_recursion(?Send)]
-    async fn query_raw(&mut self, raw_event: BusEvent) -> Result<BusEvent, FireEventError> {
-        let mut handler = self.get_handlers(&raw_event, EventType::Query)?.remove(0);
-
-        let id = raw_event.uuid();
-        // not really needed here, mostly for supporting send events. holds on to the original BusEvent
-        let mut event_container = Some(raw_event);
+    async fn handle_event_inner(
+        &mut self,
+        event_container: &mut Option<BusEvent>,
+        mut handler: (Box<dyn BusStopMech>, TypeId),
+    ) -> Result<Option<BusEvent>, FireEventError> {
+        let id = event_container.as_ref().unwrap().uuid();
 
         let mut stop_fut_container = Some(handler.0.raw_event(
-            &mut event_container,
+            event_container,
             EventType::Query,
             BusInterface::new(self.global_event_send.clone()),
         ));
@@ -132,7 +131,9 @@ impl DABus {
             match OneOf::new(
                 stop_fut_container.take().unwrap(),
                 self.global_event_recv.clone().into_recv_async(),
-            ).await {
+            )
+            .await
+            {
                 OneOfResult::F0(stop_result, ..) => {
                     // this means that the process is complete, and the result is done
 
@@ -140,32 +141,44 @@ impl DABus {
                         RawEventReturn::Response(response) => {
                             debug_assert!(response.event_is::<sys::ReturnEvent>());
                             debug_assert_eq!(response.uuid(), id);
-                            break 'poll response;
+                            break 'poll Some(response);
                         }
-                        _ => unreachable!(),
+                        RawEventReturn::Processed => break 'poll None,
+                        RawEventReturn::Ignored => unreachable!(),
                     };
                 }
                 OneOfResult::F1(stop_fut, recv_result) => {
-                    let recvd = recv_result.unwrap();
-                    match recvd.1 {
+                    let (event, rtype) = recv_result.unwrap();
+                    match rtype {
                         RequestType::Query { responder } => {
-                            responder.send(self.query_raw(recvd.0).await?).unwrap();
+                            responder.send(self.query_raw(event).await?).unwrap();
                             stop_fut_container = Some(stop_fut)
                         }
                         RequestType::Send { notifier } => {
-                            self.send_raw(recvd.0).await?;
+                            self.send_raw(event).await?;
                             notifier.send(()).unwrap();
                             stop_fut_container = Some(stop_fut)
                         }
                     }
                 }
-                OneOfResult::All(..) => unreachable!()
+                OneOfResult::All(..) => unreachable!(),
             };
         };
         drop(stop_fut_container); //to please the gods
         self.registered_stops
             .borrow_mut()
             .push((handler.0, handler.1));
+        Ok(response)
+    }
+
+    async fn query_raw(&mut self, raw_event: BusEvent) -> Result<BusEvent, FireEventError> {
+        let handler = self.get_handlers(&raw_event, EventType::Query)?.remove(0);
+
+        // not really needed here, mostly for supporting send events. holds on to the original BusEvent
+        let mut event_container = Some(raw_event);
+
+        let response = self.handle_event_inner(&mut event_container, (handler.0, handler.1)).await?.unwrap();
+
         Ok(response)
     }
 
@@ -189,7 +202,6 @@ impl DABus {
         Ok(res)
     }
 
-    #[async_recursion::async_recursion(?Send)]
     async fn send_raw(&mut self, raw_event: BusEvent) -> Result<(), FireEventError> {
         let mut handler_ids = vec![];
         for (handler, id, method) in self.get_handlers(&raw_event, EventType::Send)? {
@@ -200,45 +212,14 @@ impl DABus {
         let mut event_container = Some(raw_event);
 
         for (handler_id, _) in handler_ids {
-            let mut handler = self
+            let handler = self
                 .registered_stops
                 .borrow_mut()
                 .drain_filter(|stop| stop.1 == handler_id)
                 .nth(0)
                 .unwrap();
 
-            let mut stop_fut_container = Some(handler.0.raw_event(
-                &mut event_container,
-                EventType::Send,
-                BusInterface::new(self.global_event_send.clone()),
-            ));
-            'poll: loop {
-                match OneOf::new(
-                    stop_fut_container.take().unwrap(),
-                    self.global_event_recv.clone().into_recv_async(),
-                ).await {
-                    OneOfResult::F0(..) => break 'poll,
-                    OneOfResult::F1(stop_fut, recv_result) => {
-                        let (event, rtype) = recv_result.unwrap();
-                        match rtype {
-                            RequestType::Query { responder } => {
-                                responder.send(self.query_raw(event).await?).unwrap();
-                                stop_fut_container = Some(stop_fut)
-                            }
-                            RequestType::Send { notifier } => {
-                                self.send_raw(event).await?;
-                                notifier.send(()).unwrap();
-                                stop_fut_container = Some(stop_fut)
-                            }
-                        }
-                    }
-                    OneOfResult::All(..) => unreachable!()
-                };
-            }
-            drop(stop_fut_container); //to please the gods
-            self.registered_stops
-                .borrow_mut()
-                .push((handler.0, handler.1));
+            self.handle_event_inner(&mut event_container, handler).await?;
         }
 
         Ok(())
