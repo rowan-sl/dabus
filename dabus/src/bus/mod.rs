@@ -104,15 +104,6 @@ impl DABus {
                                 .extend(&mut handlers.into_iter().map(|(a, b, _)| (a, b)));
                             Err(GetHandlersError::MultipleQuery)
                         } else {
-                            match handlers[0].2 {
-                                EventActionType::Ignore => {
-                                    self.registered_stops
-                                        .borrow_mut()
-                                        .extend(&mut handlers.into_iter().map(|(a, b, _)| (a, b)));
-                                    return Err(GetHandlersError::NoHandler);
-                                }
-                                _ => {}
-                            }
                             Ok(handlers)
                         }
                     }
@@ -126,7 +117,7 @@ impl DABus {
     pub async fn query_raw(
         &mut self,
         raw_event: BusEvent,
-    ) -> Result<BusEvent, QueryEventError> {
+    ) -> Result<BusEvent, FireEventError> {
         let mut handler = self.get_handlers(&raw_event, EventType::Query)?.remove(0);
 
         let id = raw_event.uuid();
@@ -162,8 +153,10 @@ impl DABus {
                             responder.send(self.query_raw(recvd.0).await?).unwrap();
                             stop_fut_container = Some(stop_fut)
                         }
-                        RequestType::Send { notifier: _ } => {
-                            todo!();
+                        RequestType::Send { notifier } => {
+                            self.send_raw(recvd.0).await?;
+                            notifier.send(()).unwrap();
+                            stop_fut_container = Some(stop_fut)
                         }
                     }
                 }
@@ -181,7 +174,7 @@ impl DABus {
         &mut self,
         event: S::Event,
         args: S::Args,
-    ) -> Result<S::Response, QueryEventError> {
+    ) -> Result<S::Response, FireEventError> {
         let id = Uuid::new_v4();
         let event = BusEvent::new(event, args, id);
 
@@ -196,16 +189,92 @@ impl DABus {
             Ok(expected) => *expected,
             Err(..) => {
                 warn!("Mismatched return types are allways dropped, this could cause issues");
-                return Err(QueryEventError::InvalidReturnType);
+                return Err(FireEventError::InvalidReturnType);
             }
         };
 
         Ok(res)
     }
+
+    #[async_recursion::async_recursion(?Send)]
+    pub async fn send_raw(
+        &mut self,
+        raw_event: BusEvent,
+    ) -> Result<(), FireEventError> {
+        let mut handler_ids = vec![];
+        for (handler, id, method) in self.get_handlers(&raw_event, EventType::Send)? {
+            self.registered_stops.borrow_mut().push((handler, id));
+            handler_ids.push((id, method));
+        }
+
+        let mut event_container = Some(raw_event);
+
+        for (handler_id, _) in handler_ids {
+            let mut handler = self.registered_stops.borrow_mut().drain_filter(|stop| {
+                stop.1 == handler_id
+            }).nth(0).unwrap();
+
+            let interface = BusInterface::new(self.global_event_send.clone());
+            let mut stop_fut_container = Some(handler.0.raw_event(&mut event_container, EventType::Send, interface));
+            'poll: loop {
+                let stop_fut = stop_fut_container.take().unwrap();
+                let receiver = self.global_event_recv.clone();
+                let recv_fut = receiver.recv_async();
+                let bolth_fut = OneOf::new(stop_fut, recv_fut);
+                match bolth_fut.await {
+                    OneOfResult::F0(stop_result, recv_fut) => {
+                        // this means that the process is complete, and the result is done
+
+                        drop(recv_fut); // we dont need this, nothing will be lost
+
+                        match stop_result {
+                            RawEventReturn::Ignored => unreachable!(),
+                            RawEventReturn::Processed => {},
+                            RawEventReturn::Response(..) => unreachable!(),
+                        };
+
+                        break 'poll;
+                    }
+                    OneOfResult::F1(stop_fut, recv_result) => {
+                        let recvd = recv_result.unwrap();
+                        match recvd.1 {
+                            RequestType::Query { responder } => {
+                                responder.send(self.query_raw(recvd.0).await?).unwrap();
+                                stop_fut_container = Some(stop_fut)
+                            }
+                            RequestType::Send { notifier } => {
+                                self.send_raw(recvd.0).await?;
+                                notifier.send(()).unwrap();
+                                stop_fut_container = Some(stop_fut)
+                            }
+                        }
+                    }
+                    OneOfResult::All(_stop_result, _recv_result) => {
+                        unreachable!(); // probably
+                    }
+                };
+            };
+            drop(stop_fut_container);//to please the gods
+            self.registered_stops.borrow_mut().push((handler.0, handler.1));
+        }
+
+        Ok(())
+    }
+
+    pub async fn send<S: BusStop>(
+        &mut self,
+        event: S::Event,
+        args: S::Args,
+    ) -> Result<(), FireEventError> {
+        let id = Uuid::new_v4();
+        let event = BusEvent::new(event, args, id);
+
+        self.send_raw(event).await
+    }
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
-pub enum QueryEventError {
+pub enum FireEventError {
     #[error("Could not find an appropreate handler for this event: {0}")]
     Handler(#[from] GetHandlersError),
     /// note: this will be phased out in the future, once handler selection relies on the handler type
