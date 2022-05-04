@@ -48,7 +48,14 @@ impl DABus {
         &mut self,
         event: &BusEvent,
         etype: EventType,
-    ) -> Result<Vec<(Box<dyn BusStopMech + Send + Sync + 'static>, TypeId, EventActionType)>, GetHandlersError> {
+    ) -> Result<
+        Vec<(
+            Box<dyn BusStopMech + Send + Sync + 'static>,
+            TypeId,
+            EventActionType,
+        )>,
+        GetHandlersError,
+    > {
         let mut handlers = self
             .registered_stops
             .borrow_mut()
@@ -152,7 +159,9 @@ impl DABus {
                     let (event, rtype) = recv_result.unwrap();
                     match rtype {
                         RequestType::Query { responder } => {
-                            responder.send(self.handle_event(event, EventType::Query).await?.unwrap()).unwrap();
+                            responder
+                                .send(self.handle_event(event, EventType::Query).await?.unwrap())
+                                .unwrap();
                             stop_fut_container = Some(stop_fut)
                         }
                         RequestType::Send { notifier } => {
@@ -172,7 +181,11 @@ impl DABus {
         Ok(response)
     }
 
-    async fn handle_event(&mut self, raw_event: BusEvent, etype: EventType) -> Result<Option<BusEvent>, FireEventError> {
+    async fn handle_event(
+        &mut self,
+        raw_event: BusEvent,
+        etype: EventType,
+    ) -> Result<Option<BusEvent>, FireEventError> {
         let mut handler_ids = vec![];
         for (handler, id, method) in self.get_handlers(&raw_event, etype)? {
             self.registered_stops.borrow_mut().push((handler, id));
@@ -189,7 +202,10 @@ impl DABus {
                 .nth(0)
                 .unwrap();
 
-            match self.handle_event_inner(&mut event_container, handler, etype).await? {
+            match self
+                .handle_event_inner(&mut event_container, handler, etype)
+                .await?
+            {
                 Some(response) => {
                     // it must have been a query event, so there wont be any more reponses
                     return Ok(Some(response));
@@ -210,7 +226,14 @@ impl DABus {
         let event = BusEvent::new(event, args, id);
 
         // look at this *very* clean code
-        let res: S::Response = match self.handle_event(event, EventType::Query).await?.unwrap().into_raw().1.downcast() {
+        let res: S::Response = match self
+            .handle_event(event, EventType::Query)
+            .await?
+            .unwrap()
+            .into_raw()
+            .1
+            .downcast()
+        {
             Ok(expected) => *expected,
             Err(..) => {
                 warn!("Mismatched return types are allways dropped, this could cause issues");
