@@ -11,3 +11,4 @@
 - [ ] figure out how the previous TODO would interact with multiple handlers accepting the same event?
 - [ ] documentation *sigh*
 - [ ] backtraces, so debugging of nested calls is acutally reasonable *double sigh*
+- [ ] tests *triple sigh*

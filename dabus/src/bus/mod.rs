@@ -114,7 +114,7 @@ impl DABus {
     }
 
     #[async_recursion::async_recursion(?Send)]
-    pub async fn query_raw(
+    async fn query_raw(
         &mut self,
         raw_event: BusEvent,
     ) -> Result<BusEvent, FireEventError> {
@@ -197,7 +197,7 @@ impl DABus {
     }
 
     #[async_recursion::async_recursion(?Send)]
-    pub async fn send_raw(
+    async fn send_raw(
         &mut self,
         raw_event: BusEvent,
     ) -> Result<(), FireEventError> {
