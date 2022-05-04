@@ -42,7 +42,7 @@ pub enum EventArgs<'a, T: PossiblyClone + Any + Send + 'static> {
 #[async_trait]
 pub trait BusStop: Debug /* deal with it */ + Any /* i swear to god */ {
     type Event: Clone + Any + Send + 'static;
-    type Args: PossiblyClone + Any + Send + 'static;
+    type Args: PossiblyClone + Any + Sync + Send + 'static;
     type Response: Any + Send + 'static;
 
     /// handle a query-type event
@@ -67,7 +67,7 @@ pub trait BusStop: Debug /* deal with it */ + Any /* i swear to god */ {
     ) -> EventActionType;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub(crate) trait BusStopMech: Debug + Any {
     async fn raw_event(
         &mut self,
@@ -87,11 +87,11 @@ pub enum RawEventReturn {
 }
 
 // watch the magic happen
-#[async_trait(?Send)]
+#[async_trait]
 impl<E, A, R, T> BusStopMech for T
 where
     E: Clone + Any + Send + 'static,
-    A: PossiblyClone + Any + Send + 'static,
+    A: PossiblyClone + Any + Sync + Send + 'static,
     R: Any + Send + 'static,
     T: BusStop<Event = E, Args = A, Response = R> + Send,
 {

@@ -16,7 +16,7 @@ use async_util::{OneOf, OneOfResult};
 pub struct DABus {
     global_event_recv: Receiver<(BusEvent, RequestType)>,
     global_event_send: Sender<(BusEvent, RequestType)>,
-    registered_stops: RefCell<Vec<(Box<dyn BusStopMech>, TypeId)>>,
+    registered_stops: RefCell<Vec<(Box<dyn BusStopMech + Send + Sync + 'static>, TypeId)>>,
 }
 
 impl DABus {
@@ -31,7 +31,7 @@ impl DABus {
     }
 
     /// Registers a new stop with the bus.
-    pub fn register<B: BusStop + Send>(&mut self, stop: B) {
+    pub fn register<B: BusStop + Send + Sync + 'static>(&mut self, stop: B) {
         self.registered_stops
             .borrow_mut()
             .push((Box::new(stop), TypeId::of::<B>()));
@@ -48,7 +48,7 @@ impl DABus {
         &mut self,
         event: &BusEvent,
         etype: EventType,
-    ) -> Result<Vec<(Box<dyn BusStopMech>, TypeId, EventActionType)>, GetHandlersError> {
+    ) -> Result<Vec<(Box<dyn BusStopMech + Send + Sync + 'static>, TypeId, EventActionType)>, GetHandlersError> {
         let mut handlers = self
             .registered_stops
             .borrow_mut()
@@ -113,17 +113,18 @@ impl DABus {
         }
     }
 
-    #[async_recursion::async_recursion(?Send)]
+    #[async_recursion::async_recursion]
     async fn handle_event_inner(
         &mut self,
         event_container: &mut Option<BusEvent>,
-        mut handler: (Box<dyn BusStopMech>, TypeId),
+        mut handler: (Box<dyn BusStopMech + Send + Sync + 'static>, TypeId),
+        etype: EventType,
     ) -> Result<Option<BusEvent>, FireEventError> {
         let id = event_container.as_ref().unwrap().uuid();
 
         let mut stop_fut_container = Some(handler.0.raw_event(
             event_container,
-            EventType::Query,
+            etype,
             BusInterface::new(self.global_event_send.clone()),
         ));
 
@@ -177,7 +178,7 @@ impl DABus {
         // not really needed here, mostly for supporting send events. holds on to the original BusEvent
         let mut event_container = Some(raw_event);
 
-        let response = self.handle_event_inner(&mut event_container, (handler.0, handler.1)).await?.unwrap();
+        let response = self.handle_event_inner(&mut event_container, (handler.0, handler.1), EventType::Query).await?.unwrap();
 
         Ok(response)
     }
@@ -219,7 +220,7 @@ impl DABus {
                 .nth(0)
                 .unwrap();
 
-            self.handle_event_inner(&mut event_container, handler).await?;
+            self.handle_event_inner(&mut event_container, handler, EventType::Send).await?;
         }
 
         Ok(())
