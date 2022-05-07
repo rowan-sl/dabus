@@ -1,10 +1,9 @@
 use std::{any::Any, fmt::Debug};
 
 use crate::{
-    bus::sys::ReturnEvent,
     event::{BusEvent, EventType},
     interface::BusInterface,
-    util::possibly_clone::PossiblyClone,
+    util::PossiblyClone,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,35 +34,64 @@ pub enum EventArgs<'a, T: PossiblyClone + Any + Send + 'static> {
     HandleCopy(T),
     /// take a reference to the event,
     HandleRef(&'a T),
-    /// do not handle the event
-    Ignore,
+}
+
+impl <'a, T: PossiblyClone + Any + Send + 'static> EventArgs<'a, T> {
+    pub fn into_t(self) -> T {
+        match self {
+            Self::Consume(t) => t,
+            Self::HandleCopy(t) => t,
+            Self::HandleRef(..) => panic!("Called EventArgs::into_t on HandleRef variant!")
+        }
+    }
+
+    pub fn ref_t(&self) -> &T {
+        match self {
+            Self::Consume(t) => t,
+            Self::HandleCopy(t) => t,
+            Self::HandleRef(t) => t,
+        }
+    }
+
+    pub fn is_ref(&self) -> bool {
+        match self {
+            Self::Consume(..) => false,
+            Self::HandleCopy(..) => false,
+            Self::HandleRef(..) => true,
+        }
+    }
 }
 
 #[async_trait]
 pub trait BusStop: Debug /* deal with it */ + Any /* i swear to god */ {
-    type Event: Clone + Any + Send + 'static;
-    type Args: PossiblyClone + Any + Sync + Send + 'static;
-    type Response: Any + Send + 'static;
+    type Event: PossiblyClone + Any + Sync + Send + 'static;
+    // type Response: Any + Send + 'static;
 
-    /// handle a query-type event
-    async fn query_event<'a>(
+    async fn event<'a>(
         &mut self,
-        args: EventArgs<'a, Self::Args>,
+        event: EventArgs<'a, Self::Event>,
+        etype: EventType,
         bus: BusInterface,
-    ) -> Self::Response;
+    ) -> Option<Box<dyn Any + Send + 'static>>;//mabey make this a bit nicer/clearer what is supposed to be returned?
 
-    /// handle a send-type event
-    async fn send_event<'a>(
-        &mut self,
-        args: EventArgs<'a, Self::Args>,
-        bus: BusInterface,
-    );
+    // /// handle a query-type event
+    // async fn query_event<'a>(
+    //     &mut self,
+    //     args: EventArgs<'a, Self::Event>,
+    //     bus: BusInterface,
+    // ) -> Box<dyn Any + Send + 'static>;
+
+    // /// handle a send-type event
+    // async fn send_event<'a>(
+    //     &mut self,
+    //     args: EventArgs<'a, Self::Event>,
+    //     bus: BusInterface,
+    // );
 
     /// after a type match check, how should this event be handled
     fn action(
         &mut self,
-        event: Self::Event,
-        etype: EventType,
+        event: &Self::Event,
     ) -> EventActionType;
 }
 
@@ -76,7 +104,7 @@ pub(crate) trait BusStopMech: Debug + Any {
         bus: BusInterface,
     ) -> RawEventReturn;
     fn matches(&mut self, event: &BusEvent) -> bool;
-    fn raw_action(&mut self, event: &BusEvent, etype: EventType) -> EventActionType;
+    fn raw_action(&mut self, event: &BusEvent) -> EventActionType;
 }
 
 pub enum RawEventReturn {
@@ -88,12 +116,10 @@ pub enum RawEventReturn {
 
 // watch the magic happen
 #[async_trait]
-impl<E, A, R, T> BusStopMech for T
+impl<E, T> BusStopMech for T
 where
-    E: Clone + Any + Send + 'static,
-    A: PossiblyClone + Any + Sync + Send + 'static,
-    R: Any + Send + 'static,
-    T: BusStop<Event = E, Args = A, Response = R> + Send,
+    E: PossiblyClone + Any + Sync + Send + 'static,
+    T: BusStop<Event = E> + Send,
 {
     /// **IMPORTANT** make shure that the handlers are sorted by how they consume `event` before running them,
     /// and it should be an error if more than one tries to consume a event
@@ -109,24 +135,24 @@ where
 
         let id = event.as_ref().unwrap().uuid();
 
-        let event_args = match self.action(event.as_ref().unwrap().clone_event().unwrap(), etype) {
+        let event_args = match self.action(event.as_ref().unwrap().try_ref_event().unwrap()) {
             EventActionType::Consume => {
                 let taken = event.take().unwrap();
-                let (_, args) = taken.is_into::<E, A>().unwrap();
-                EventArgs::Consume(*args)
+                let event = taken.is_into::<E>().unwrap();
+                EventArgs::Consume(*event)
             }
             EventActionType::HandleCopy => {
                 let copy = event
                     .as_ref()
                     .unwrap()
-                    .try_clone_event::<E, A>()
+                    .try_clone_event::<E>()
                     .expect("Event must be Clone in order to use HandleCopy");
-                let (_, args) = copy.is_into::<E, A>().unwrap();
-                EventArgs::HandleCopy(*args)
+                let event = copy.is_into::<E>().unwrap();
+                EventArgs::HandleCopy(*event)
             }
             EventActionType::HandleRef => {
-                let args = event.as_ref().unwrap().try_ref_args::<A>().unwrap();
-                EventArgs::HandleRef(args)
+                let event = event.as_ref().unwrap().try_ref_event::<E>().unwrap();
+                EventArgs::HandleRef(event)
             }
             EventActionType::Ignore => {
                 return RawEventReturn::Ignored;
@@ -135,21 +161,21 @@ where
 
         match etype {
             EventType::Query => {
-                let response = self.query_event(event_args, bus).await;
-                RawEventReturn::Response(BusEvent::new(ReturnEvent, response, id))
+                let response = self.event(event_args, EventType::Query, bus).await.expect("Query events must have a response");
+                RawEventReturn::Response(BusEvent::new_raw(response, id))
             }
             EventType::Send => {
-                self.send_event(event_args, bus).await;
+                assert!(self.event(event_args, EventType::Send, bus).await.is_none(), "Send events must not have a response");
                 RawEventReturn::Processed
             }
         }
     }
 
     fn matches(&mut self, event: &BusEvent) -> bool {
-        event.event_is::<E>() & event.args_are::<A>()
+        event.event_is::<E>()
     }
 
-    fn raw_action(&mut self, event: &BusEvent, etype: EventType) -> EventActionType {
-        self.action(event.clone_event().unwrap(), etype)
+    fn raw_action(&mut self, event: &BusEvent) -> EventActionType {
+        self.action(event.try_ref_event().unwrap())
     }
 }

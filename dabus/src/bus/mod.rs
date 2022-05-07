@@ -8,20 +8,22 @@ use flume::{Receiver, Sender};
 use uuid::Uuid;
 
 use crate::event::{BusEvent, EventType};
-use crate::interface::{BusInterface, RequestType};
+use crate::interface::BusInterface;
 use crate::stop::{BusStop, BusStopMech, EventActionType, RawEventReturn};
+use crate::args::EventSpec;
+use crate::util::PossiblyClone;
 use async_util::{OneOf, OneOfResult};
 
 #[derive(Debug)]
 pub struct DABus {
-    global_event_recv: Receiver<(BusEvent, RequestType)>,
-    global_event_send: Sender<(BusEvent, RequestType)>,
+    global_event_recv: Receiver<(BusEvent, EventType, Sender<Result<Option<BusEvent>, FireEventError>>)>,
+    global_event_send: Sender<(BusEvent, EventType, Sender<Result<Option<BusEvent>, FireEventError>>)>,
     registered_stops: RefCell<Vec<(Box<dyn BusStopMech + Send + Sync + 'static>, TypeId)>>,
 }
 
 impl DABus {
     pub fn new() -> Self {
-        let (global_event_send, global_event_recv): (_, Receiver<(BusEvent, RequestType)>) =
+        let (global_event_send, global_event_recv): (_, Receiver<(BusEvent, EventType, Sender<Result<Option<BusEvent>, FireEventError>>)>) =
             flume::unbounded();
         Self {
             global_event_recv,
@@ -61,14 +63,14 @@ impl DABus {
             .borrow_mut()
             .drain_filter(|stop| {
                 if stop.0.matches(event) {
-                    let action = stop.0.raw_action(event, etype);
+                    let action = stop.0.raw_action(event);
                     EventActionType::Ignore != action
                 } else {
                     false
                 }
             })
             .map(|(mut stop, stop_id)| {
-                let action = stop.raw_action(event, etype);
+                let action = stop.raw_action(event);
                 (stop, stop_id, action)
             })
             .collect::<Vec<_>>();
@@ -147,7 +149,6 @@ impl DABus {
 
                     match stop_result {
                         RawEventReturn::Response(response) => {
-                            debug_assert!(response.event_is::<sys::ReturnEvent>());
                             debug_assert_eq!(response.uuid(), id);
                             break 'poll Some(response);
                         }
@@ -156,20 +157,9 @@ impl DABus {
                     };
                 }
                 OneOfResult::F1(stop_fut, recv_result) => {
-                    let (event, rtype) = recv_result.unwrap();
-                    match rtype {
-                        RequestType::Query { responder } => {
-                            responder
-                                .send(self.handle_event(event, EventType::Query).await?.unwrap())
-                                .unwrap();
-                            stop_fut_container = Some(stop_fut)
-                        }
-                        RequestType::Send { notifier } => {
-                            self.handle_event(event, EventType::Send).await?;
-                            notifier.send(()).unwrap();
-                            stop_fut_container = Some(stop_fut)
-                        }
-                    }
+                    let (event, etype, responeder) = recv_result.unwrap();
+                    responeder.send(self.handle_event(event, etype).await).unwrap();
+                    stop_fut_container = Some(stop_fut);
                 }
                 OneOfResult::All(..) => unreachable!(),
             };
@@ -217,43 +207,27 @@ impl DABus {
         Ok(None)
     }
 
-    pub async fn query<S: BusStop>(
-        &mut self,
-        event: S::Event,
-        args: S::Args,
-    ) -> Result<S::Response, FireEventError> {
-        let id = Uuid::new_v4();
-        let event = BusEvent::new(event, args, id);
+    pub async fn fire<S: Send + 'static, A: Send + Sync, R: Send + Sync>(&mut self, q: &'static EventSpec<S, A, R>, args: A) -> Result<R, FireEventError> {
+        let etype = q.event_variant.clone();
+        let args_as_sum_t = (q.convert)(args);
 
-        // look at this *very* clean code
-        let res: S::Response = match self
-            .handle_event(event, EventType::Query)
-            .await?
-            .unwrap()
-            .into_raw()
-            .1
-            .downcast()
-        {
-            Ok(expected) => *expected,
-            Err(..) => {
-                warn!("Mismatched return types are allways dropped, this could cause issues");
-                return Err(FireEventError::InvalidReturnType);
+        let raw_event = BusEvent::new(args_as_sum_t, Uuid::new_v4());
+        let response = self.handle_event(raw_event, etype).await?;
+        match response {
+            Some(res) => {
+                match res.is_into::<R>() {
+                    Ok(expected) => {
+                        Ok(*expected)
+                    }
+                    Err(..) => {
+                        Err(FireEventError::InvalidReturnType)
+                    }
+                }
             }
-        };
-
-        Ok(res)
-    }
-
-    pub async fn send<S: BusStop>(
-        &mut self,
-        event: S::Event,
-        args: S::Args,
-    ) -> Result<(), FireEventError> {
-        let id = Uuid::new_v4();
-        let event = BusEvent::new(event, args, id);
-
-        self.handle_event(event, EventType::Send).await?;
-        Ok(())
+            None => {
+                Ok(q.default_return.as_ref().expect("Send type events must provide a default return").try_clone())
+            }
+        }
     }
 }
 

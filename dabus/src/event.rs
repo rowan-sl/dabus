@@ -2,7 +2,7 @@ use std::any::{Any, TypeId};
 
 use uuid::Uuid;
 
-use crate::util::possibly_clone::PossiblyClone;
+use crate::util::PossiblyClone;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventType {
@@ -14,8 +14,6 @@ pub enum EventType {
 
 #[derive(Debug)]
 pub struct BusEvent {
-    /// args the event was called with
-    args: Box<dyn Any + Send + 'static>,
     /// the event itself
     event: Box<dyn Any + Send + 'static>,
     /// identifier used for event responses
@@ -25,12 +23,20 @@ pub struct BusEvent {
 impl BusEvent {
     pub fn new(
         event: impl Any + Send + 'static,
-        args: impl Any + Send + 'static,
         id: Uuid,
     ) -> Self {
         Self {
-            args: Box::new(args),
             event: Box::new(event),
+            id,
+        }
+    }
+
+    pub fn new_raw(
+        event: Box<dyn Any + Send + 'static>,
+        id: Uuid,
+    ) -> Self {
+        Self {
+            event,
             id,
         }
     }
@@ -41,33 +47,32 @@ impl BusEvent {
     }
 
     /// checks if the contained args are of type `T`
-    pub fn args_are<T: Any + Send + 'static>(&self) -> bool {
-        TypeId::of::<T>() == (*self.args).type_id()
-    }
+    // pub fn args_are<T: Any + Send + 'static>(&self) -> bool {
+    //     TypeId::of::<T>() == (*self.args).type_id()
+    // }
 
     /// if the contained event is of the type `E` and args are of type `A`, returning them bolth
-    pub fn is_into<E: Any + Send + 'static, A: Any + Send + 'static>(
+    pub fn is_into<E: Any + Send + 'static>(
         self,
-    ) -> Result<(Box<E>, Box<A>), Self> {
+    ) -> Result<Box<E>, Self> {
         // trace!("Attempting to convert to the type {} {}", type_name::<E>(), type_name::<A>());
         if !self.event_is::<E>() {
             // trace!("is_into: event mismatch");
             return Err(self);
         }
-        if !self.args_are::<A>() {
-            warn!("Mismatched args for event!");
-            return Err(self);
-        }
+        // if !self.args_are::<A>() {
+        //     warn!("Mismatched args for event!");
+        //     return Err(self);
+        // }
         let event = self.event;
-        let args = self.args;
-        Ok((event.downcast().unwrap(), args.downcast().unwrap()))
+        Ok(event.downcast().unwrap())
     }
 
-    pub fn try_ref_args<'a, A: Any + Send + 'static>(&'a self) -> Result<&'a A, ()> {
-        if !self.args_are::<A>() {
+    pub fn try_ref_event<'a, E: Any + Send + 'static>(&'a self) -> Result<&'a E, ()> {
+        if !self.event_is::<E>() {
             return Err(());
         }
-        match self.args.downcast_ref::<A>() {
+        match self.event.downcast_ref::<E>() {
             Some(a) => Ok(a),
             None => Err(()),
         }
@@ -77,37 +82,31 @@ impl BusEvent {
         self,
     ) -> (
         Box<dyn Any + Send + 'static>,
-        Box<dyn Any + Send + 'static>,
+        // Box<dyn Any + Send + 'static>,
         Uuid,
     ) {
-        (self.event, self.args, self.id)
+        (self.event, self.id)
     }
 
     pub fn uuid(&self) -> Uuid {
         self.id
     }
 
-    pub fn clone_event<E: Clone + Any + Send + 'static>(&self) -> Result<E, ()> {
-        match self.event.downcast_ref::<E>() {
-            Some(event) => Ok(event.clone()),
-            None => Err(()),
-        }
-    }
+    // pub fn clone_event<E: Clone + Any + Send + 'static>(&self) -> Result<E, ()> {
+    //     match self.event.downcast_ref::<E>() {
+    //         Some(event) => Ok(event.clone()),
+    //         None => Err(()),
+    //     }
+    // }
 
     pub fn try_clone_event<
-        E: Clone + Any + Send + 'static,
-        A: PossiblyClone + Any + Send + 'static,
+        E: PossiblyClone + Any + Send + 'static,
     >(
         &self,
     ) -> Result<Self, ()> {
         let new_event = match self.event.downcast_ref::<E>() {
-            Some(event) => event.clone(),
-            None => return Err(()),
-        };
-
-        let new_args = match self.event.downcast_ref::<A>() {
             Some(event) => {
-                if A::IS_CLONE {
+                if event.is_clone() {
                     event.try_clone()
                 } else {
                     return Err(());
@@ -118,7 +117,6 @@ impl BusEvent {
 
         Ok(Self {
             event: Box::new(new_event),
-            args: Box::new(new_args),
             id: self.id.clone(),
         })
     }

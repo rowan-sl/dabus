@@ -1,11 +1,11 @@
-use std::fmt::Debug;
+use std::{fmt::{Debug, Display}, any::Any};
 
 use async_trait::async_trait;
-
 use dabus::{
     event::EventType,
     stop::{EventActionType, EventArgs},
     BusInterface, BusStop, DABus,
+    decl_event,
 };
 
 #[tokio::main]
@@ -15,123 +15,103 @@ async fn main() {
         .init();
 
     let mut bus = DABus::new();
-    bus.register(HelloHandler {});
-    bus.register(Printer {});
-    bus.register(Printer2 {});
-    for _ in 0..10 {
-        bus.query::<HelloHandler>(HelloMessage, "Hello, World!".to_string())
-            .await
-            .unwrap();
-    }
+    bus.register(Printer);
+    bus.register(Hello);
+    bus.fire(HELLO_WORLD, ()).await.unwrap();
 }
 
-#[derive(Debug, Clone)]
-struct PrintMessage2;
-#[derive(Debug)]
-struct Printer2 {}
-
-#[async_trait]
-impl BusStop for Printer2 {
-    type Event = PrintMessage2;
-    type Args = String;
-    type Response = ();
-
-    /// handle a query-type event
-    async fn query_event<'a>(
-        &mut self,
-        _args: EventArgs<'a, Self::Args>,
-        _bus: BusInterface,
-    ) -> Self::Response {
-    }
-
-    /// handle a send-type event
-    async fn send_event<'a>(&mut self, args: EventArgs<'a, Self::Args>, _bus: BusInterface) {
-        match args {
-            EventArgs::HandleRef(to_print) => {
-                println!("{}", to_print);
-            }
-            _ => {}
-        }
-    }
-
-    /// after a type match check, how should this event be handled
-    fn action(&mut self, _event: Self::Event, etype: EventType) -> EventActionType {
-        match etype {
-            EventType::Query => EventActionType::Ignore,
-            EventType::Send => EventActionType::HandleRef,
-        }
-    }
+pub enum PrinterEvent {
+    Display(Box<dyn Display + Sync + Send>),
+    Debug((Box<dyn Debug + Sync + Send>, bool /* pretty-print */)),
+    Print(String),
 }
 
-#[derive(Debug, Clone)]
-struct PrintMessage;
+decl_event!(pub(self), PRINTER_DISPLAY, PrinterEvent, Display, Box<dyn Display + Sync + Send>,       String, None,     EventType::Query);
+decl_event!(pub(self), PRINTER_DEBUG,   PrinterEvent, Debug,   (Box<dyn Debug + Sync + Send>, bool), String, None,     EventType::Query);
+decl_event!(pub(self), PRINTER_PRINT,   PrinterEvent, Print,   String,                               (),     Some(()), EventType::Send);
+
 #[derive(Debug)]
-struct Printer {}
+struct Printer;
 
 #[async_trait]
 impl BusStop for Printer {
-    type Event = PrintMessage;
-    type Args = Box<dyn Debug + Sync + Send>;
-    type Response = String;
+    type Event = PrinterEvent;
 
-    /// handle a query-type event
-    async fn query_event<'a>(
+    async fn event<'a>(
         &mut self,
-        args: EventArgs<'a, Self::Args>,
+        event: EventArgs<'a, Self::Event>,
+        _etype: EventType,
         _bus: BusInterface,
-    ) -> Self::Response {
-        if let EventArgs::Consume(args) = args {
-            format!("{:?}", args)
-        } else {
-            panic!()
+    ) -> Option<Box<dyn Any + Send + 'static>> {
+        match event {
+            EventArgs::Consume(PrinterEvent::Debug((debuggable, prettyprint))) => {
+                Some(Box::new(if prettyprint {
+                    format!("{:#?}", debuggable)
+                } else {
+                    format!("{:?}", debuggable)
+                }))
+            }
+            EventArgs::Consume(PrinterEvent::Display(displayable)) => {
+                Some(Box::new(format!("{}", displayable)))
+            }
+            EventArgs::HandleRef(PrinterEvent::Print(to_print)) => {
+                println!("{}", to_print);
+                None
+            }
+            _ => unreachable!()
         }
     }
 
-    /// handle a send-type event
-    async fn send_event<'a>(&mut self, _args: EventArgs<'a, Self::Args>, _bus: BusInterface) {}
-
     /// after a type match check, how should this event be handled
-    fn action(&mut self, _event: Self::Event, etype: EventType) -> EventActionType {
-        match etype {
-            EventType::Query => EventActionType::Consume,
-            EventType::Send => EventActionType::Ignore,
+    fn action(
+        &mut self,
+        event: &Self::Event,
+    ) -> EventActionType {
+        match event {
+            PrinterEvent::Display(..) => EventActionType::Consume,
+            PrinterEvent::Debug(..) => EventActionType::Consume,
+            PrinterEvent::Print(..) => EventActionType::HandleRef,
         }
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct HelloMessage;
+pub enum HelloEvent {
+    Hello(()),
+}
+
+decl_event!(pub(self), HELLO_WORLD, HelloEvent, Hello, (), (), Some(()), EventType::Send);
+
+
 #[derive(Debug)]
-pub struct HelloHandler {}
+struct Hello;
 
 #[async_trait]
-impl BusStop for HelloHandler {
-    type Event = HelloMessage;
-    type Args = String;
-    type Response = ();
+impl BusStop for Hello {
+    type Event = HelloEvent;
 
-    /// handle a query-type event
-    async fn query_event<'a>(
+    async fn event<'a>(
         &mut self,
-        args: EventArgs<'a, Self::Args>,
+        event: EventArgs<'a, Self::Event>,
+        _etype: EventType,
         mut bus: BusInterface,
-    ) -> Self::Response {
-        if let EventArgs::Consume(args) = args {
-            let to_print = bus.query::<Printer>(PrintMessage, Box::new(args)).await;
-            bus.send::<Printer2>(PrintMessage2, to_print).await;
-        } else {
-            panic!()
+    ) -> Option<Box<dyn Any + Send + 'static>> {
+        match event {
+            EventArgs::Consume(HelloEvent::Hello(())) => {
+                let to_print = bus.fire(PRINTER_DEBUG, (Box::new("Hello, World!".to_string()), false)).await.unwrap();
+                bus.fire(PRINTER_PRINT, to_print).await.unwrap();
+                None
+            }
+            _ => unreachable!()
         }
     }
 
-    /// handle a send-type event
-    async fn send_event<'a>(&mut self, _args: EventArgs<'a, Self::Args>, _bus: BusInterface) {}
-
     /// after a type match check, how should this event be handled
-    fn action(&mut self, _event: Self::Event, etype: EventType) -> EventActionType {
-        match etype {
-            EventType::Query => EventActionType::Consume,
-            EventType::Send => EventActionType::Ignore,
+    fn action(
+        &mut self,
+        event: &Self::Event,
+    ) -> EventActionType {
+        match event {
+            HelloEvent::Hello(()) => EventActionType::Consume
         }
     }
 }

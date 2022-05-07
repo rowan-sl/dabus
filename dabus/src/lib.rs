@@ -8,7 +8,9 @@ pub mod interface;
 pub mod prelude;
 pub mod stop;
 pub(crate) mod util;
+pub mod args;
 
+#[allow(unused_imports)]
 #[macro_use]
 extern crate log;
 #[macro_use]
