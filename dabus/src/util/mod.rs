@@ -12,5 +12,5 @@ pub use possibly_clone::PossiblyClone;
 pub use dyn_typename::TypeNamed;
 pub use dyn_downcast::AsAny;
 
-pub trait GeneralRequirements: PossiblyClone + TypeNamed + AsAny + 'static {}
+pub trait GeneralRequirements: TypeNamed + AsAny + 'static {}
 impl<T: 'static> GeneralRequirements for T {}

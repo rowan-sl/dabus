@@ -11,7 +11,7 @@ use crate::event::{BusEvent, EventType};
 use crate::interface::BusInterface;
 use crate::stop::{BusStop, BusStopMech, EventActionType, RawEventReturn};
 use crate::args::EventSpec;
-use crate::util::PossiblyClone;
+use crate::util::{GeneralRequirements, PossiblyClone};
 use async_util::{OneOf, OneOfResult};
 
 #[derive(Debug)]
@@ -62,7 +62,10 @@ impl DABus {
             .registered_stops
             .borrow_mut()
             .drain_filter(|stop| {
-                if stop.0.matches(event) {
+                trace!("Checking stop {:#?}", stop);
+                let matches = stop.0.matches(event);
+                trace!("Stop matches event: {}", matches);
+                if matches {
                     let action = stop.0.raw_action(event);
                     EventActionType::Ignore != action
                 } else {
@@ -207,7 +210,7 @@ impl DABus {
         Ok(None)
     }
 
-    pub async fn fire<S: Send + 'static, A: Send + Sync, R: Send + Sync>(&mut self, q: &'static EventSpec<S, A, R>, args: A) -> Result<R, FireEventError> {
+    pub async fn fire<S: Send + 'static, A: Send + Sync, R: GeneralRequirements + Send + Sync + 'static>(&mut self, q: &'static EventSpec<S, A, R>, args: A) -> Result<R, FireEventError> {
         let etype = q.event_variant.clone();
         let args_as_sum_t = (q.convert)(args);
 
@@ -219,8 +222,10 @@ impl DABus {
                     Ok(expected) => {
                         Ok(*expected)
                     }
-                    Err(..) => {
-                        Err(FireEventError::InvalidReturnType)
+                    Err(actual) => {
+                        let expected = std::any::type_name::<Box<R>>();
+                        let found = (*actual.into_raw().0).type_name();
+                        Err(FireEventError::InvalidReturnType(expected, found))
                     }
                 }
             }
@@ -236,8 +241,10 @@ pub enum FireEventError {
     #[error("Could not find an appropreate handler for this event: {0}")]
     Handler(#[from] GetHandlersError),
     /// note: this will be phased out in the future, once handler selection relies on the handler type
-    #[error("Handler did not return the specified return type!")]
-    InvalidReturnType,
+    ///
+    /// (expected, found)
+    #[error("Handler did not return the specified return type! expected {0}, found {1}")]
+    InvalidReturnType(&'static str, &'static str),
 }
 
 #[derive(Debug, Clone, thiserror::Error)]

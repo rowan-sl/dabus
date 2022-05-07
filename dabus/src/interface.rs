@@ -32,8 +32,10 @@ impl BusInterface {
                     Ok(expected) => {
                         Ok(*expected)
                     }
-                    Err(..) => {
-                        Err(FireEventError::InvalidReturnType)
+                    Err(actual) => {
+                        let expected = std::any::type_name::<Box<R>>();
+                        let found = (*actual.into_raw().0).type_name();
+                        Err(FireEventError::InvalidReturnType(expected, found))
                     }
                 }
             }

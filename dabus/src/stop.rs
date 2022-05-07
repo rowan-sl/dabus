@@ -3,7 +3,7 @@ use std::{any::Any, fmt::Debug};
 use crate::{
     event::{BusEvent, EventType},
     interface::BusInterface,
-    util::PossiblyClone,
+    util::{PossiblyClone, GeneralRequirements},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,7 +72,7 @@ pub trait BusStop: Debug /* deal with it */ + Any /* i swear to god */ {
         event: EventArgs<'a, Self::Event>,
         etype: EventType,
         bus: BusInterface,
-    ) -> Option<Box<dyn Any + Send + 'static>>;//mabey make this a bit nicer/clearer what is supposed to be returned?
+    ) -> Option<Box<dyn GeneralRequirements + Send + 'static>>;//mabey make this a bit nicer/clearer what is supposed to be returned?
 
     // /// handle a query-type event
     // async fn query_event<'a>(

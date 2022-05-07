@@ -7,7 +7,7 @@ pub mod event;
 pub mod interface;
 pub mod prelude;
 pub mod stop;
-pub(crate) mod util;
+pub mod util;
 pub mod args;
 
 #[allow(unused_imports)]
@@ -15,6 +15,8 @@ pub mod args;
 extern crate log;
 #[macro_use]
 extern crate async_trait;
+#[macro_use]
+extern crate derivative;
 
 pub use bus::DABus;
 pub use interface::BusInterface;

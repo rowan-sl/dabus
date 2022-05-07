@@ -1,11 +1,11 @@
-use std::{fmt::{Debug, Display}, any::Any};
+use std::fmt::{Debug, Display};
 
 use async_trait::async_trait;
 use dabus::{
     event::EventType,
     stop::{EventActionType, EventArgs},
     BusInterface, BusStop, DABus,
-    decl_event,
+    decl_event, util::GeneralRequirements,
 };
 
 #[tokio::main]
@@ -42,7 +42,7 @@ impl BusStop for Printer {
         event: EventArgs<'a, Self::Event>,
         _etype: EventType,
         _bus: BusInterface,
-    ) -> Option<Box<dyn Any + Send + 'static>> {
+    ) -> Option<Box<dyn GeneralRequirements + Send + 'static>> {
         match event {
             EventArgs::Consume(PrinterEvent::Debug((debuggable, prettyprint))) => {
                 Some(Box::new(if prettyprint {
@@ -94,7 +94,7 @@ impl BusStop for Hello {
         event: EventArgs<'a, Self::Event>,
         _etype: EventType,
         mut bus: BusInterface,
-    ) -> Option<Box<dyn Any + Send + 'static>> {
+    ) -> Option<Box<dyn GeneralRequirements + Send + 'static>> {
         match event {
             EventArgs::Consume(HelloEvent::Hello(())) => {
                 let to_print = bus.fire(PRINTER_DEBUG, (Box::new("Hello, World!".to_string()), false)).await.unwrap();
