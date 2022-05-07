@@ -8,7 +8,7 @@ use flume::{Receiver, Sender};
 use uuid::Uuid;
 
 use crate::event::{BusEvent, EventType};
-use crate::interface::BusInterface;
+use crate::interface::{BusInterface, InterfaceEvent};
 use crate::stop::{BusStop, BusStopMech, EventActionType, RawEventReturn};
 use crate::args::EventSpec;
 use crate::util::{GeneralRequirements, PossiblyClone};
@@ -16,14 +16,14 @@ use async_util::{OneOf, OneOfResult};
 
 #[derive(Debug)]
 pub struct DABus {
-    global_event_recv: Receiver<(BusEvent, EventType, Sender<Result<Option<BusEvent>, FireEventError>>)>,
-    global_event_send: Sender<(BusEvent, EventType, Sender<Result<Option<BusEvent>, FireEventError>>)>,
+    global_event_recv: Receiver<InterfaceEvent>,
+    global_event_send: Sender<InterfaceEvent>,
     registered_stops: RefCell<Vec<(Box<dyn BusStopMech + Send + Sync + 'static>, TypeId)>>,
 }
 
 impl DABus {
     pub fn new() -> Self {
-        let (global_event_send, global_event_recv): (_, Receiver<(BusEvent, EventType, Sender<Result<Option<BusEvent>, FireEventError>>)>) =
+        let (global_event_send, global_event_recv): (_, Receiver<InterfaceEvent>) =
             flume::unbounded();
         Self {
             global_event_recv,
@@ -160,9 +160,17 @@ impl DABus {
                     };
                 }
                 OneOfResult::F1(stop_fut, recv_result) => {
-                    let (event, etype, responeder) = recv_result.unwrap();
-                    responeder.send(self.handle_event(event, etype).await).unwrap();
-                    stop_fut_container = Some(stop_fut);
+                    match recv_result.unwrap() {
+                        InterfaceEvent::Call(event, etype, responeder) => {
+                            responeder.send(self.handle_event(event, etype).await).unwrap();
+                            stop_fut_container = Some(stop_fut);
+                        }
+                        InterfaceEvent::FwdErr(error) => {
+                            drop(stop_fut);
+                            return Err(error);
+                            //TODO add more logic for backtraces
+                        }
+                    }
                 }
                 OneOfResult::All(..) => unreachable!(),
             };

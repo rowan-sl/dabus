@@ -5,7 +5,8 @@ use dabus::{
     event::EventType,
     stop::{EventActionType, EventArgs},
     BusInterface, BusStop, DABus,
-    decl_event, util::GeneralRequirements,
+    util::GeneralRequirements,
+    decl_event,
 };
 
 #[tokio::main]
