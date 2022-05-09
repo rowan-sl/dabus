@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::util::{PossiblyClone, GeneralRequirements};
 
+/// the type of event, ether Send or Query
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventType {
     /// an event that requires a response
@@ -12,6 +13,9 @@ pub enum EventType {
     Send,
 }
 
+/// The raw representation of a event sent on the bus.
+///
+/// probably should not be exposed in a public interface?
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct BusEvent {

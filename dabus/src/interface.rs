@@ -11,6 +11,7 @@ pub enum InterfaceEvent {
     FwdErr(FireEventError),
 }
 
+/// Interface provided to event hanlders, that allows it to communicate with the bus calling the handler
 #[derive(Debug, Clone)]
 pub struct BusInterface {
     event_queue: Sender<InterfaceEvent>,
@@ -23,6 +24,11 @@ impl BusInterface {
         }
     }
 
+    /// Fires an event on the bus this event handler is part of
+    ///
+    /// for more info, see [`DABus::fire`]
+    ///
+    /// [`DABus::fire`]: crate::bus::DABus::fire
     pub async fn fire<S: PossiblyClone + Any + Sync + Send + 'static, A: PossiblyClone + Any + Send + Sync + 'static, R: PossiblyClone + Any + Send + Sync>(&mut self, q: &'static EventSpec<S, A, R>, args: A) -> Result<R, FireEventError> {
         let etype = q.event_variant.clone();
         let args_as_sum_t = (q.convert)(args);
@@ -66,8 +72,10 @@ impl BusInterface {
     }
 }
 
+/// Utility for handling bus errors inside of bus handlers
 #[async_trait]
 pub trait BusErrorUtil<T> {
+    /// unwraps an `Result`, or forwards the error to [`BusInterface::fwd_bus_err`]
     async fn unwrap_or_fwd(self, bus: BusInterface) -> T;
 }
 

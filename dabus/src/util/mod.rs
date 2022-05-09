@@ -12,5 +12,6 @@ pub use possibly_clone::PossiblyClone;
 pub use dyn_typename::TypeNamed;
 pub use dyn_downcast::AsAny;
 
+/// convenience trait for [`TypeNamed`] + [`AsAny`] + 'static
 pub trait GeneralRequirements: TypeNamed + AsAny + 'static {}
 impl<T: 'static> GeneralRequirements for T {}

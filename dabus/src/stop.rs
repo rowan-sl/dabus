@@ -6,6 +6,7 @@ use crate::{
     util::{PossiblyClone, GeneralRequirements},
 };
 
+/// Various ways that an event can be passed to a handler
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventActionType {
     /// consume the event.
@@ -22,6 +23,9 @@ pub enum EventActionType {
     Ignore,
 }
 
+/// Arg type pased to an event handler, containing the actual args.
+///
+/// the variants directly corrispond to the variants of [`EventActionType`]
 #[derive(Debug)]
 pub enum EventArgs<'a, T: PossiblyClone + Any + Send + 'static> {
     /// consume the event.
@@ -37,6 +41,10 @@ pub enum EventArgs<'a, T: PossiblyClone + Any + Send + 'static> {
 }
 
 impl <'a, T: PossiblyClone + Any + Send + 'static> EventArgs<'a, T> {
+    /// convert `Self` into an owned `T` value
+    ///
+    /// # Panics
+    /// when `Self` contains a reference instead of an owned value
     pub fn into_t(self) -> T {
         match self {
             Self::Consume(t) => t,
@@ -45,6 +53,9 @@ impl <'a, T: PossiblyClone + Any + Send + 'static> EventArgs<'a, T> {
         }
     }
 
+    /// reutrens a reference to the value contained in `Self`
+    ///
+    /// infallible
     pub fn ref_t(&self) -> &T {
         match self {
             Self::Consume(t) => t,
@@ -53,6 +64,7 @@ impl <'a, T: PossiblyClone + Any + Send + 'static> EventArgs<'a, T> {
         }
     }
 
+    /// returns if `Self` contains `&T` or `T`
     pub fn is_ref(&self) -> bool {
         match self {
             Self::Consume(..) => false,
@@ -64,8 +76,8 @@ impl <'a, T: PossiblyClone + Any + Send + 'static> EventArgs<'a, T> {
 
 #[async_trait]
 pub trait BusStop: Debug /* deal with it */ + Any /* i swear to god */ {
+    /// the Event type passed to [`BusStop::event`]
     type Event: PossiblyClone + Any + Sync + Send + 'static;
-    // type Response: Any + Send + 'static;
 
     async fn event<'a>(
         &mut self,
@@ -73,20 +85,6 @@ pub trait BusStop: Debug /* deal with it */ + Any /* i swear to god */ {
         etype: EventType,
         bus: BusInterface,
     ) -> Option<Box<dyn GeneralRequirements + Send + 'static>>;//mabey make this a bit nicer/clearer what is supposed to be returned?
-
-    // /// handle a query-type event
-    // async fn query_event<'a>(
-    //     &mut self,
-    //     args: EventArgs<'a, Self::Event>,
-    //     bus: BusInterface,
-    // ) -> Box<dyn Any + Send + 'static>;
-
-    // /// handle a send-type event
-    // async fn send_event<'a>(
-    //     &mut self,
-    //     args: EventArgs<'a, Self::Event>,
-    //     bus: BusInterface,
-    // );
 
     /// after a type match check, how should this event be handled
     fn action(

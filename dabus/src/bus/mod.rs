@@ -1,5 +1,4 @@
 mod async_util;
-pub mod sys;
 
 use std::any::TypeId;
 use std::cell::RefCell;

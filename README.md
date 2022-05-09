@@ -13,3 +13,4 @@
 - [ ] backtraces, so debugging of nested calls is acutally reasonable *double sigh*
 - [ ] tests *triple sigh*
 - [ ] figure out if there should be a distinction between send and query events anymore, and remove it if there is not
+- [ ] document the differences between Send and Query events
