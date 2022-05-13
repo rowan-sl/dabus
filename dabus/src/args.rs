@@ -5,7 +5,11 @@ use crate::{event::EventType, util::GeneralRequirements};
 /// this should only be created through the [`decl_event`] macro
 ///
 ///  please note that when `event_variant` is `EventType::Send`, the return type `R` is ignored
-pub struct EventSpec<S: Send + 'static, A: Send + Sync + 'static, R: GeneralRequirements + Send + Sync > {
+pub struct EventSpec<
+    S: Send + 'static,
+    A: Send + Sync + 'static,
+    R: GeneralRequirements + Send + Sync,
+> {
     pub event_variant: EventType,
     pub convert: fn(A) -> S,
     // this is what will be returned for Send type events, and MUST be clone if it is not None.

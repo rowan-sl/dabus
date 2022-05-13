@@ -6,10 +6,10 @@ use std::cell::RefCell;
 use flume::{Receiver, Sender};
 use uuid::Uuid;
 
+use crate::args::EventSpec;
 use crate::event::{BusEvent, EventType};
 use crate::interface::{BusInterface, InterfaceEvent};
 use crate::stop::{BusStop, BusStopMech, EventActionType, RawEventReturn};
-use crate::args::EventSpec;
 use crate::util::{GeneralRequirements, PossiblyClone};
 use async_util::{OneOf, OneOfResult};
 
@@ -42,24 +42,22 @@ impl DABus {
     }
 
     // TODO implement this function once https://github.com/rust-lang/rust/issues/65991 is complete
-    pub fn deregister<B: BusStop + GeneralRequirements + Send + Sync + 'static>(&mut self) -> Option<B> {
-        self.registered_stops.borrow_mut().drain_filter(|stop| {
-            stop.1 == TypeId::of::<B>()
-        }).nth(0).map(|item| {*item.0.to_any().downcast().unwrap()})
+    pub fn deregister<B: BusStop + GeneralRequirements + Send + Sync + 'static>(
+        &mut self,
+    ) -> Option<B> {
+        self.registered_stops
+            .borrow_mut()
+            .drain_filter(|stop| stop.1 == TypeId::of::<B>())
+            .nth(0)
+            .map(|item| *item.0.to_any().downcast().unwrap())
     }
 
     fn get_handlers(
         &mut self,
         event: &BusEvent,
         etype: EventType,
-    ) -> Result<
-        Vec<(
-            Box<dyn StopTraitReq + 'static>,
-            TypeId,
-            EventActionType,
-        )>,
-        GetHandlersError,
-    > {
+    ) -> Result<Vec<(Box<dyn StopTraitReq + 'static>, TypeId, EventActionType)>, GetHandlersError>
+    {
         let mut handlers = self
             .registered_stops
             .borrow_mut()
@@ -164,7 +162,9 @@ impl DABus {
                 OneOfResult::F1(stop_fut, recv_result) => {
                     match recv_result.unwrap() {
                         InterfaceEvent::Call(event, etype, responeder) => {
-                            responeder.send(self.handle_event(event, etype).await).unwrap();
+                            responeder
+                                .send(self.handle_event(event, etype).await)
+                                .unwrap();
                             stop_fut_container = Some(stop_fut);
                         }
                         InterfaceEvent::FwdErr(error) => {
@@ -220,28 +220,34 @@ impl DABus {
         Ok(None)
     }
 
-    pub async fn fire<S: Send + 'static, A: Send + Sync, R: GeneralRequirements + Send + Sync + 'static>(&mut self, q: &'static EventSpec<S, A, R>, args: A) -> Result<R, FireEventError> {
+    pub async fn fire<
+        S: Send + 'static,
+        A: Send + Sync,
+        R: GeneralRequirements + Send + Sync + 'static,
+    >(
+        &mut self,
+        q: &'static EventSpec<S, A, R>,
+        args: A,
+    ) -> Result<R, FireEventError> {
         let etype = q.event_variant.clone();
         let args_as_sum_t = (q.convert)(args);
 
         let raw_event = BusEvent::new(args_as_sum_t, Uuid::new_v4());
         let response = self.handle_event(raw_event, etype).await?;
         match response {
-            Some(res) => {
-                match res.is_into::<R>() {
-                    Ok(expected) => {
-                        Ok(*expected)
-                    }
-                    Err(actual) => {
-                        let expected = std::any::type_name::<Box<R>>();
-                        let found = (*actual.into_raw().0).type_name();
-                        Err(FireEventError::InvalidReturnType(expected, found))
-                    }
+            Some(res) => match res.is_into::<R>() {
+                Ok(expected) => Ok(*expected),
+                Err(actual) => {
+                    let expected = std::any::type_name::<Box<R>>();
+                    let found = (*actual.into_raw().0).type_name();
+                    Err(FireEventError::InvalidReturnType(expected, found))
                 }
-            }
-            None => {
-                Ok(q.default_return.as_ref().expect("Send type events must provide a default return").try_clone())
-            }
+            },
+            None => Ok(q
+                .default_return
+                .as_ref()
+                .expect("Send type events must provide a default return")
+                .try_clone()),
         }
     }
 }

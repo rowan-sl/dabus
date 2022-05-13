@@ -2,13 +2,13 @@
 #![allow(incomplete_features)]
 #![feature(specialization)]
 
+pub mod args;
 pub mod bus;
 pub mod event;
 pub mod interface;
 pub mod prelude;
 pub mod stop;
 pub mod util;
-pub mod args;
 
 #[allow(unused_imports)]
 #[macro_use]

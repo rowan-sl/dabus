@@ -3,5 +3,5 @@
 //!
 //! ***everone should make preludes like this!!!!!***
 
-pub use crate::stop::BusStop as _;
 pub use crate::interface::BusErrorUtil as _;
+pub use crate::stop::BusStop as _;

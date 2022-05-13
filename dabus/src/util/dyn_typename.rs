@@ -1,4 +1,4 @@
-use std::any::{Any, type_name};
+use std::any::{type_name, Any};
 
 /// Allows getting the name of the type contained in a `Box<dyn Any>`
 ///

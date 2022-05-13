@@ -1,8 +1,8 @@
-use std::any::{Any, TypeId, type_name};
+use std::any::{type_name, Any, TypeId};
 
 use uuid::Uuid;
 
-use crate::util::{PossiblyClone, GeneralRequirements};
+use crate::util::{GeneralRequirements, PossiblyClone};
 
 /// the type of event, ether Send or Query
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,44 +20,38 @@ pub enum EventType {
 #[derivative(Debug)]
 pub struct BusEvent {
     /// the event itself
-    #[derivative(Debug="ignore")]
+    #[derivative(Debug = "ignore")]
     event: Box<dyn GeneralRequirements + Send + 'static>,
     /// identifier used for event responses
     id: Uuid,
 }
 
 impl BusEvent {
-    pub fn new(
-        event: impl GeneralRequirements + Send + 'static,
-        id: Uuid,
-    ) -> Self {
+    pub fn new(event: impl GeneralRequirements + Send + 'static, id: Uuid) -> Self {
         Self {
             event: Box::new(event),
             id,
         }
     }
 
-    pub fn new_raw(
-        event: Box<dyn GeneralRequirements + Send + 'static>,
-        id: Uuid,
-    ) -> Self {
-        Self {
-            event,
-            id,
-        }
+    pub fn new_raw(event: Box<dyn GeneralRequirements + Send + 'static>, id: Uuid) -> Self {
+        Self { event, id }
     }
 
     /// checks if the contained event type is of type `T`
     pub fn event_is<T: GeneralRequirements + Send + 'static>(&self) -> bool {
         let is = TypeId::of::<T>() == (*self.event).as_any().type_id();
-        trace!("Event: {}, is {}: {}", (*self.event).type_name(), type_name::<T>(), is);
+        trace!(
+            "Event: {}, is {}: {}",
+            (*self.event).type_name(),
+            type_name::<T>(),
+            is
+        );
         is
     }
 
     /// if the contained event is of the type `E` and args are of type `A`, returning them bolth
-    pub fn is_into<E: GeneralRequirements + Send + 'static>(
-        self,
-    ) -> Result<Box<E>, Self> {
+    pub fn is_into<E: GeneralRequirements + Send + 'static>(self) -> Result<Box<E>, Self> {
         if !self.event_is::<E>() {
             return Err(self);
         }
@@ -65,7 +59,9 @@ impl BusEvent {
         Ok(event.to_any().downcast().unwrap())
     }
 
-    pub fn try_ref_event<'a, E: GeneralRequirements + Send + 'static>(&'a self) -> Result<&'a E, ()> {
+    pub fn try_ref_event<'a, E: GeneralRequirements + Send + 'static>(
+        &'a self,
+    ) -> Result<&'a E, ()> {
         if !self.event_is::<E>() {
             return Err(());
         }
@@ -89,9 +85,7 @@ impl BusEvent {
         self.id
     }
 
-    pub fn try_clone_event<
-        E: GeneralRequirements + Any + Send + 'static,
-    >(
+    pub fn try_clone_event<E: GeneralRequirements + Any + Send + 'static>(
         &self,
     ) -> Result<Self, ()> {
         let new_event = match self.event.as_any().downcast_ref::<E>() {

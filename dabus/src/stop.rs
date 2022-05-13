@@ -3,7 +3,7 @@ use std::{any::Any, fmt::Debug};
 use crate::{
     event::{BusEvent, EventType},
     interface::BusInterface,
-    util::{PossiblyClone, GeneralRequirements},
+    util::{GeneralRequirements, PossiblyClone},
 };
 
 /// Various ways that an event can be passed to a handler
@@ -40,7 +40,7 @@ pub enum EventArgs<'a, T: PossiblyClone + Any + Send + 'static> {
     HandleRef(&'a T),
 }
 
-impl <'a, T: PossiblyClone + Any + Send + 'static> EventArgs<'a, T> {
+impl<'a, T: PossiblyClone + Any + Send + 'static> EventArgs<'a, T> {
     /// convert `Self` into an owned `T` value
     ///
     /// # Panics
@@ -49,7 +49,7 @@ impl <'a, T: PossiblyClone + Any + Send + 'static> EventArgs<'a, T> {
         match self {
             Self::Consume(t) => t,
             Self::HandleCopy(t) => t,
-            Self::HandleRef(..) => panic!("Called EventArgs::into_t on HandleRef variant!")
+            Self::HandleRef(..) => panic!("Called EventArgs::into_t on HandleRef variant!"),
         }
     }
 
@@ -159,11 +159,17 @@ where
 
         match etype {
             EventType::Query => {
-                let response = self.event(event_args, EventType::Query, bus).await.expect("Query events must have a response");
+                let response = self
+                    .event(event_args, EventType::Query, bus)
+                    .await
+                    .expect("Query events must have a response");
                 RawEventReturn::Response(BusEvent::new_raw(response, id))
             }
             EventType::Send => {
-                assert!(self.event(event_args, EventType::Send, bus).await.is_none(), "Send events must not have a response");
+                assert!(
+                    self.event(event_args, EventType::Send, bus).await.is_none(),
+                    "Send events must not have a response"
+                );
                 RawEventReturn::Processed
             }
         }

@@ -2,11 +2,11 @@ use std::fmt::{Debug, Display};
 
 use async_trait::async_trait;
 use dabus::{
+    decl_event,
     event::EventType,
     stop::{EventActionType, EventArgs},
-    BusInterface, BusStop, DABus,
     util::GeneralRequirements,
-    decl_event,
+    BusInterface, BusStop, DABus,
 };
 
 #[tokio::main]
@@ -61,15 +61,12 @@ impl BusStop for Printer {
                 println!("{}", to_print);
                 None
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
     /// after a type match check, how should this event be handled
-    fn action(
-        &mut self,
-        event: &Self::Event,
-    ) -> EventActionType {
+    fn action(&mut self, event: &Self::Event) -> EventActionType {
         match event {
             PrinterEvent::Display(..) => EventActionType::Consume,
             PrinterEvent::Debug(..) => EventActionType::Consume,
@@ -83,7 +80,6 @@ pub enum HelloEvent {
 }
 
 decl_event!(pub(self), HELLO_WORLD, HelloEvent, Hello, (), (), Some(()), EventType::Send);
-
 
 #[derive(Debug)]
 struct Hello;
@@ -100,21 +96,24 @@ impl BusStop for Hello {
     ) -> Option<Box<dyn GeneralRequirements + Send + 'static>> {
         match event {
             EventArgs::Consume(HelloEvent::Hello(())) => {
-                let to_print = bus.fire(PRINTER_DEBUG, (Box::new("Hello, World!".to_string()), false)).await.unwrap();
+                let to_print = bus
+                    .fire(
+                        PRINTER_DEBUG,
+                        (Box::new("Hello, World!".to_string()), false),
+                    )
+                    .await
+                    .unwrap();
                 bus.fire(PRINTER_PRINT, to_print).await.unwrap();
                 None
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
     /// after a type match check, how should this event be handled
-    fn action(
-        &mut self,
-        event: &Self::Event,
-    ) -> EventActionType {
+    fn action(&mut self, event: &Self::Event) -> EventActionType {
         match event {
-            HelloEvent::Hello(()) => EventActionType::Consume
+            HelloEvent::Hello(()) => EventActionType::Consume,
         }
     }
 }
