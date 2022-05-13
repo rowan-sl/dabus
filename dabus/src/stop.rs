@@ -3,7 +3,7 @@ use std::{any::Any, fmt::Debug};
 use crate::{
     event::{BusEvent, EventType},
     interface::BusInterface,
-    util::{GeneralRequirements, PossiblyClone},
+    util::{GeneralRequirements, PossiblyClone, TypeNamed},
 };
 
 /// Various ways that an event can be passed to a handler
@@ -100,13 +100,12 @@ pub(crate) trait BusStopMech: Debug + Any {
         event: &mut Option<BusEvent>,
         etype: EventType,
         bus: BusInterface,
-    ) -> RawEventReturn;
+    ) -> Result<RawEventReturn, HandleEventError>;
     fn matches(&mut self, event: &BusEvent) -> bool;
     fn raw_action(&mut self, event: &BusEvent) -> EventActionType;
 }
 
 pub enum RawEventReturn {
-    Ignored,
     Response(BusEvent /* response */),
     // processed, but no response (send type event)
     Processed,
@@ -127,9 +126,9 @@ where
         event: &mut Option<BusEvent>,
         etype: EventType,
         bus: BusInterface,
-    ) -> RawEventReturn {
-        assert!(event.is_some());
-        assert!(self.matches(event.as_ref().unwrap()));
+    ) -> Result<RawEventReturn, HandleEventError> {
+        debug_assert!(event.is_some(), "Event state is not valid!");
+        debug_assert!(self.matches(event.as_ref().unwrap()), "raw_event was called on a event that doesnt match!");
 
         let id = event.as_ref().unwrap().uuid();
 
@@ -153,24 +152,28 @@ where
                 EventArgs::HandleRef(event)
             }
             EventActionType::Ignore => {
-                return RawEventReturn::Ignored;
+                return Err(HandleEventError::Ignored);
             }
         };
 
         match etype {
             EventType::Query => {
-                let response = self
+                match self
                     .event(event_args, EventType::Query, bus)
                     .await
-                    .expect("Query events must have a response");
-                RawEventReturn::Response(BusEvent::new_raw(response, id))
+                {
+                    Some(response) => Ok(RawEventReturn::Response(BusEvent::new_raw(response, id))),
+                    None => Err(HandleEventError::QueryNoResponse),
+                }
+
             }
             EventType::Send => {
-                assert!(
-                    self.event(event_args, EventType::Send, bus).await.is_none(),
-                    "Send events must not have a response"
-                );
-                RawEventReturn::Processed
+                let ret = self.event(event_args, EventType::Send, bus).await;
+                if ret.is_some() {
+                    Err(HandleEventError::SendSomeResponse(format!("Some({})", ret.unwrap().to_any().type_name())))
+                } else {
+                    Ok(RawEventReturn::Processed)
+                }
             }
         }
     }
@@ -182,4 +185,16 @@ where
     fn raw_action(&mut self, event: &BusEvent) -> EventActionType {
         self.action(event.try_ref_event().unwrap())
     }
+}
+
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum HandleEventError {
+    #[error("Query events must have a response")]
+    QueryNoResponse,
+    #[error("Send events must not have a response\
+    Expected `None`, found `{0}`\
+    ")]
+    SendSomeResponse(String),
+    #[error("Event was ignored")]
+    Ignored,
 }

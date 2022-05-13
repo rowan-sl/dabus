@@ -144,13 +144,12 @@ impl DABus {
                 OneOfResult::F0(stop_result, ..) => {
                     // this means that the process is complete, and the result is done
 
-                    match stop_result {
+                    match stop_result? {
                         RawEventReturn::Response(response) => {
                             debug_assert_eq!(response.uuid(), id);
                             break 'poll Some(response);
                         }
                         RawEventReturn::Processed => break 'poll None,
-                        RawEventReturn::Ignored => unreachable!(),
                     };
                 }
                 OneOfResult::F1(stop_fut, recv_result) => {
@@ -253,6 +252,8 @@ pub enum FireEventError {
     /// (expected, found)
     #[error("Handler did not return the specified return type! expected {0}, found {1}")]
     InvalidReturnType(&'static str, &'static str),
+    #[error("Handler error: {0:#?}")]
+    HandlerError(#[from] crate::stop::HandleEventError),
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
