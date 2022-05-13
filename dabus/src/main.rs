@@ -19,6 +19,8 @@ async fn main() {
     bus.register(Printer);
     bus.register(Hello);
     bus.fire(HELLO_WORLD, ()).await.unwrap();
+    let handler = bus.deregister::<Printer>();
+    assert!(handler.is_some());
 }
 
 pub enum PrinterEvent {

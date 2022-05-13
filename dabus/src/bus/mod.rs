@@ -13,11 +13,14 @@ use crate::args::EventSpec;
 use crate::util::{GeneralRequirements, PossiblyClone};
 use async_util::{OneOf, OneOfResult};
 
+trait StopTraitReq: BusStopMech + GeneralRequirements + Send + Sync {}
+impl<T: BusStopMech + GeneralRequirements + Sync + Send> StopTraitReq for T {}
+
 #[derive(Debug)]
 pub struct DABus {
     global_event_recv: Receiver<InterfaceEvent>,
     global_event_send: Sender<InterfaceEvent>,
-    registered_stops: RefCell<Vec<(Box<dyn BusStopMech + Send + Sync + 'static>, TypeId)>>,
+    registered_stops: RefCell<Vec<(Box<dyn StopTraitReq + 'static>, TypeId)>>,
 }
 
 impl DABus {
@@ -32,18 +35,18 @@ impl DABus {
     }
 
     /// Registers a new stop with the bus.
-    pub fn register<B: BusStop + Send + Sync + 'static>(&mut self, stop: B) {
+    pub fn register<B: BusStop + GeneralRequirements + Send + Sync + 'static>(&mut self, stop: B) {
         self.registered_stops
             .borrow_mut()
             .push((Box::new(stop), TypeId::of::<B>()));
     }
 
     // TODO implement this function once https://github.com/rust-lang/rust/issues/65991 is complete
-    // pub fn deregister<B: BusStop + Send>(&mut self) -> Option<B> {
-    //     self.registered_stops.borrow_mut().drain_filter(|stop| {
-    //         stop.1 == TypeId::of::<B>()
-    //     }).nth(0).map(|item| {*(item.0 as Box<dyn std::any::Any>).downcast().unwrap()})
-    // }
+    pub fn deregister<B: BusStop + GeneralRequirements + Send + Sync + 'static>(&mut self) -> Option<B> {
+        self.registered_stops.borrow_mut().drain_filter(|stop| {
+            stop.1 == TypeId::of::<B>()
+        }).nth(0).map(|item| {*item.0.to_any().downcast().unwrap()})
+    }
 
     fn get_handlers(
         &mut self,
@@ -51,7 +54,7 @@ impl DABus {
         etype: EventType,
     ) -> Result<
         Vec<(
-            Box<dyn BusStopMech + Send + Sync + 'static>,
+            Box<dyn StopTraitReq + 'static>,
             TypeId,
             EventActionType,
         )>,
@@ -128,7 +131,7 @@ impl DABus {
     async fn handle_event_inner(
         &mut self,
         event_container: &mut Option<BusEvent>,
-        mut handler: (Box<dyn BusStopMech + Send + Sync + 'static>, TypeId),
+        mut handler: (Box<dyn StopTraitReq + 'static>, TypeId),
         etype: EventType,
     ) -> Result<Option<BusEvent>, FireEventError> {
         let id = event_container.as_ref().unwrap().uuid();
