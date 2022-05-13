@@ -1,7 +1,6 @@
 mod async_util;
 
 use std::any::TypeId;
-use std::cell::RefCell;
 
 use flume::{Receiver, Sender};
 use uuid::Uuid;
@@ -20,7 +19,7 @@ impl<T: BusStopMech + GeneralRequirements + Sync + Send> StopTraitReq for T {}
 pub struct DABus {
     global_event_recv: Receiver<InterfaceEvent>,
     global_event_send: Sender<InterfaceEvent>,
-    registered_stops: RefCell<Vec<(Box<dyn StopTraitReq + 'static>, TypeId)>>,
+    registered_stops: Vec<(Box<dyn StopTraitReq + 'static>, TypeId)>,
 }
 
 impl DABus {
@@ -30,14 +29,13 @@ impl DABus {
         Self {
             global_event_recv,
             global_event_send,
-            registered_stops: RefCell::new(vec![]),
+            registered_stops: vec![],
         }
     }
 
     /// Registers a new stop with the bus.
     pub fn register<B: BusStop + GeneralRequirements + Send + Sync + 'static>(&mut self, stop: B) {
         self.registered_stops
-            .borrow_mut()
             .push((Box::new(stop), TypeId::of::<B>()));
     }
 
@@ -46,7 +44,6 @@ impl DABus {
         &mut self,
     ) -> Option<B> {
         self.registered_stops
-            .borrow_mut()
             .drain_filter(|stop| stop.1 == TypeId::of::<B>())
             .nth(0)
             .map(|item| *item.0.to_any().downcast().unwrap())
@@ -60,7 +57,6 @@ impl DABus {
     {
         let mut handlers = self
             .registered_stops
-            .borrow_mut()
             .drain_filter(|stop| {
                 trace!("Checking stop {:#?}", stop);
                 let matches = stop.0.matches(event);
@@ -104,7 +100,6 @@ impl DABus {
             }) > 1
             {
                 self.registered_stops
-                    .borrow_mut()
                     .extend(&mut handlers.into_iter().map(|(a, b, _)| (a, b)));
                 Err(GetHandlersError::MultipleConsume)
             } else {
@@ -112,7 +107,6 @@ impl DABus {
                     EventType::Query => {
                         if handlers.len() > 1 {
                             self.registered_stops
-                                .borrow_mut()
                                 .extend(&mut handlers.into_iter().map(|(a, b, _)| (a, b)));
                             Err(GetHandlersError::MultipleQuery)
                         } else {
@@ -179,7 +173,6 @@ impl DABus {
         };
         drop(stop_fut_container); //to please the gods
         self.registered_stops
-            .borrow_mut()
             .push((handler.0, handler.1));
         Ok(response)
     }
@@ -191,7 +184,7 @@ impl DABus {
     ) -> Result<Option<BusEvent>, FireEventError> {
         let mut handler_ids = vec![];
         for (handler, id, method) in self.get_handlers(&raw_event, etype)? {
-            self.registered_stops.borrow_mut().push((handler, id));
+            self.registered_stops.push((handler, id));
             handler_ids.push((id, method));
         }
 
@@ -200,7 +193,6 @@ impl DABus {
         for (handler_id, _) in handler_ids {
             let handler = self
                 .registered_stops
-                .borrow_mut()
                 .drain_filter(|stop| stop.1 == handler_id)
                 .nth(0)
                 .unwrap();
