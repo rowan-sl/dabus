@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::args::EventSpec;
 use crate::event::{BusEvent, EventType};
 use crate::interface::{BusInterface, InterfaceEvent};
-use crate::stop::{BusStop, BusStopMech, EventActionType, RawEventReturn};
+use crate::stop::{BusStop, BusStopMech, EventActionType, RawEventReturn, RawAction};
 use crate::util::{GeneralRequirements, PossiblyClone};
 use async_util::{OneOf, OneOfResult};
 
@@ -39,7 +39,6 @@ impl DABus {
             .push((Box::new(stop), TypeId::of::<B>()));
     }
 
-    // TODO implement this function once https://github.com/rust-lang/rust/issues/65991 is complete
     pub fn deregister<B: BusStop + GeneralRequirements + Send + Sync + 'static>(
         &mut self,
     ) -> Option<B> {
@@ -59,17 +58,18 @@ impl DABus {
             .registered_stops
             .drain_filter(|stop| {
                 trace!("Checking stop {:#?}", stop);
-                let matches = stop.0.matches(event);
-                trace!("Stop matches event: {}", matches);
-                if matches {
-                    let action = stop.0.raw_action(event);
-                    EventActionType::Ignore != action
-                } else {
-                    false
+                let action = stop.0.raw_action(event, etype);
+                match action {
+                    RawAction::NoConversion | RawAction::TypeMismatch => false,
+                    RawAction::QueryEvent | RawAction::SendEvent(..) => true,
                 }
             })
             .map(|(mut stop, stop_id)| {
-                let action = stop.raw_action(event);
+                let action = match stop.raw_action(event, etype) {
+                    RawAction::NoConversion | RawAction::TypeMismatch => unreachable!(),
+                    RawAction::QueryEvent => EventActionType::Consume,
+                    RawAction::SendEvent(atype) => atype
+                };
                 (stop, stop_id, action)
             })
             .collect::<Vec<_>>();
@@ -78,18 +78,12 @@ impl DABus {
         } else {
             handlers.sort_by(|a, b| {
                 use std::cmp::Ordering::{Equal, Greater, Less};
-                use EventActionType::{Consume, HandleCopy, HandleRef, Ignore};
+                use EventActionType::{Consume, HandleCopy};
                 match (a.2, b.2) {
-                    (Ignore, Ignore) => Equal,
-                    (Ignore, _) => Less,
-                    (_, Ignore) => Greater,
                     (Consume, Consume) => Equal,
                     (_, Consume) => Less,
                     (Consume, _) => Greater,
-                    (HandleCopy, HandleRef) => Equal,
-                    (HandleRef, HandleCopy) => Equal,
                     (HandleCopy, HandleCopy) => Equal,
-                    (HandleRef, HandleRef) => Equal,
                 }
             });
             if handlers.iter().fold(0usize, |mut acc, elem| {
@@ -171,8 +165,7 @@ impl DABus {
             };
         };
         drop(stop_fut_container); //to please the gods
-        self.registered_stops
-            .push((handler.0, handler.1));
+        self.registered_stops.push((handler.0, handler.1));
         Ok(response)
     }
 

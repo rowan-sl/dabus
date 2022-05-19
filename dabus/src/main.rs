@@ -3,8 +3,8 @@ use std::fmt::{Debug, Display};
 use async_trait::async_trait;
 use dabus::{
     decl_event,
-    event::EventType,
-    stop::{EventActionType, EventArgs},
+    event::{BusEvent, EventType},
+    stop::EventActionType,
     util::GeneralRequirements,
     BusInterface, BusStop, DABus,
 };
@@ -40,38 +40,34 @@ struct Printer;
 impl BusStop for Printer {
     type Event = PrinterEvent;
 
-    async fn event<'a>(
+    async fn event(
         &mut self,
-        event: EventArgs<'a, Self::Event>,
-        _etype: EventType,
+        event: Self::Event,
         _bus: BusInterface,
     ) -> Option<Box<dyn GeneralRequirements + Send + 'static>> {
         match event {
-            EventArgs::Consume(PrinterEvent::Debug((debuggable, prettyprint))) => {
+            PrinterEvent::Debug((debuggable, prettyprint)) => {
                 Some(Box::new(if prettyprint {
                     format!("{:#?}", debuggable)
                 } else {
                     format!("{:?}", debuggable)
                 }))
             }
-            EventArgs::Consume(PrinterEvent::Display(displayable)) => {
+            PrinterEvent::Display(displayable) => {
                 Some(Box::new(format!("{}", displayable)))
             }
-            EventArgs::HandleRef(PrinterEvent::Print(to_print)) => {
+            PrinterEvent::Print(to_print) => {
                 println!("{}", to_print);
                 None
             }
-            _ => unreachable!(),
         }
     }
 
-    /// after a type match check, how should this event be handled
-    fn action(&mut self, event: &Self::Event) -> EventActionType {
-        match event {
-            PrinterEvent::Display(..) => EventActionType::Consume,
-            PrinterEvent::Debug(..) => EventActionType::Consume,
-            PrinterEvent::Print(..) => EventActionType::HandleRef,
-        }
+    fn map_shared_event(
+        &self,
+        event: &BusEvent,
+    ) -> Option<(Box<dyn FnOnce(BusEvent) -> Self::Event>, EventActionType)> {
+        Some((Box::new(event.map_fn_if::<Self::Event, Self::Event, _>(|x| x)?), EventActionType::Consume))
     }
 }
 
@@ -88,14 +84,13 @@ struct Hello;
 impl BusStop for Hello {
     type Event = HelloEvent;
 
-    async fn event<'a>(
+    async fn event(
         &mut self,
-        event: EventArgs<'a, Self::Event>,
-        _etype: EventType,
+        event: Self::Event,
         mut bus: BusInterface,
     ) -> Option<Box<dyn GeneralRequirements + Send + 'static>> {
         match event {
-            EventArgs::Consume(HelloEvent::Hello(())) => {
+            HelloEvent::Hello(()) => {
                 let to_print = bus
                     .fire(
                         PRINTER_DEBUG,
@@ -106,14 +101,13 @@ impl BusStop for Hello {
                 bus.fire(PRINTER_PRINT, to_print).await.unwrap();
                 None
             }
-            _ => unreachable!(),
         }
     }
 
-    /// after a type match check, how should this event be handled
-    fn action(&mut self, event: &Self::Event) -> EventActionType {
-        match event {
-            HelloEvent::Hello(()) => EventActionType::Consume,
-        }
+    fn map_shared_event(
+        &self,
+        event: &BusEvent,
+    ) -> Option<(Box<dyn FnOnce(BusEvent) -> Self::Event>, EventActionType)> {
+        Some((Box::new(event.map_fn_if::<Self::Event, Self::Event, _>(|x| x)?), EventActionType::Consume))
     }
 }

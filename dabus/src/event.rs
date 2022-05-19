@@ -104,4 +104,14 @@ impl BusEvent {
             id: self.id.clone(),
         })
     }
+
+    pub fn map_fn_if<A: GeneralRequirements + Send + 'static, B, F: FnOnce(A) -> B>(&self, map_fn: F) -> Option<impl FnOnce(Self) -> B> {
+        if self.event_is::<A>() && (*self.event).type_id() == TypeId::of::<A>() {
+            Some(move |event: Self| -> B {
+                map_fn(*event.is_into::<A>().unwrap())
+            })
+        } else {
+            None
+        }
+    }
 }
