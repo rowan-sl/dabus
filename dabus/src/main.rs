@@ -46,16 +46,12 @@ impl BusStop for Printer {
         _bus: BusInterface,
     ) -> Option<Box<dyn GeneralRequirements + Send + 'static>> {
         match event {
-            PrinterEvent::Debug((debuggable, prettyprint)) => {
-                Some(Box::new(if prettyprint {
-                    format!("{:#?}", debuggable)
-                } else {
-                    format!("{:?}", debuggable)
-                }))
-            }
-            PrinterEvent::Display(displayable) => {
-                Some(Box::new(format!("{}", displayable)))
-            }
+            PrinterEvent::Debug((debuggable, prettyprint)) => Some(Box::new(if prettyprint {
+                format!("{:#?}", debuggable)
+            } else {
+                format!("{:?}", debuggable)
+            })),
+            PrinterEvent::Display(displayable) => Some(Box::new(format!("{}", displayable))),
             PrinterEvent::Print(to_print) => {
                 println!("{}", to_print);
                 None
@@ -67,7 +63,10 @@ impl BusStop for Printer {
         &self,
         event: &BusEvent,
     ) -> Option<(Box<dyn FnOnce(BusEvent) -> Self::Event>, EventActionType)> {
-        Some((Box::new(event.map_fn_if::<Self::Event, Self::Event, _>(|x| x)?), EventActionType::Consume))
+        Some((
+            Box::new(event.map_fn_if::<Self::Event, Self::Event, _>(|x| x)?),
+            EventActionType::Consume,
+        ))
     }
 }
 
@@ -108,6 +107,9 @@ impl BusStop for Hello {
         &self,
         event: &BusEvent,
     ) -> Option<(Box<dyn FnOnce(BusEvent) -> Self::Event>, EventActionType)> {
-        Some((Box::new(event.map_fn_if::<Self::Event, Self::Event, _>(|x| x)?), EventActionType::Consume))
+        Some((
+            Box::new(event.map_fn_if::<Self::Event, Self::Event, _>(|x| x)?),
+            EventActionType::Consume,
+        ))
     }
 }

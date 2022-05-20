@@ -97,29 +97,28 @@ where
 
         let id = event.as_ref().unwrap().uuid();
 
-        let event_args = match self.raw_action(event.as_ref().unwrap().try_ref_event().unwrap(), etype) {
-            RawAction::NoConversion | RawAction::TypeMismatch => unreachable!(),
-            RawAction::QueryEvent => {
-                let taken = event.take().unwrap();
-                let event = taken.is_into::<E>().unwrap();
-                *event
-            }
-            RawAction::SendEvent(atype) => {
-                let cvt_fn = self.map_shared_event(event.as_ref().unwrap()).unwrap().0;
-                match atype {
-                    EventActionType::Consume => {
-                        cvt_fn(event.take().unwrap())
-                    }
-                    EventActionType::HandleCopy => {
-                        cvt_fn(event
-                            .as_ref()
-                            .unwrap()
-                            .try_clone_event::<E>()
-                            .expect("Event must be Clone in order to use HandleCopy"))
+        let event_args =
+            match self.raw_action(event.as_ref().unwrap().try_ref_event().unwrap(), etype) {
+                RawAction::NoConversion | RawAction::TypeMismatch => unreachable!(),
+                RawAction::QueryEvent => {
+                    let taken = event.take().unwrap();
+                    let event = taken.is_into::<E>().unwrap();
+                    *event
+                }
+                RawAction::SendEvent(atype) => {
+                    let cvt_fn = self.map_shared_event(event.as_ref().unwrap()).unwrap().0;
+                    match atype {
+                        EventActionType::Consume => cvt_fn(event.take().unwrap()),
+                        EventActionType::HandleCopy => cvt_fn(
+                            event
+                                .as_ref()
+                                .unwrap()
+                                .try_clone_event::<E>()
+                                .expect("Event must be Clone in order to use HandleCopy"),
+                        ),
                     }
                 }
-            }
-        };
+            };
 
         match etype {
             EventType::Query => match self.event(event_args, bus).await {
@@ -144,10 +143,12 @@ where
     fn raw_action(&mut self, event: &BusEvent, etype: EventType) -> RawAction {
         match etype {
             EventType::Query => RawAction::QueryEvent,
-            EventType::Send => if let Some((_, acttype)) = self.map_shared_event(event) {
-                RawAction::SendEvent(acttype)
-            } else {
-                RawAction::NoConversion
+            EventType::Send => {
+                if let Some((_, acttype)) = self.map_shared_event(event) {
+                    RawAction::SendEvent(acttype)
+                } else {
+                    RawAction::NoConversion
+                }
             }
         }
     }

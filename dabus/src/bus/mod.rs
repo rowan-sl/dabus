@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::args::EventSpec;
 use crate::event::{BusEvent, EventType};
 use crate::interface::{BusInterface, InterfaceEvent};
-use crate::stop::{BusStop, BusStopMech, EventActionType, RawEventReturn, RawAction};
+use crate::stop::{BusStop, BusStopMech, EventActionType, RawAction, RawEventReturn};
 use crate::util::{GeneralRequirements, PossiblyClone};
 use async_util::{OneOf, OneOfResult};
 
@@ -68,7 +68,7 @@ impl DABus {
                 let action = match stop.raw_action(event, etype) {
                     RawAction::NoConversion | RawAction::TypeMismatch => unreachable!(),
                     RawAction::QueryEvent => EventActionType::Consume,
-                    RawAction::SendEvent(atype) => atype
+                    RawAction::SendEvent(atype) => atype,
                 };
                 (stop, stop_id, action)
             })
