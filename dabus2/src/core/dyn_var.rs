@@ -2,15 +2,14 @@ use std::any::TypeId;
 
 use crate::util::GeneralRequirements;
 
-
 /// value must be Debug, just to make things easy
 #[derive(Debug)]
 pub struct DynVar {
-    val: Box<dyn GeneralRequirements>
+    val: Box<dyn GeneralRequirements + Sync + Send + 'static>,
 }
 
 impl DynVar {
-    pub fn new<T: GeneralRequirements>(x: T) -> Self {
+    pub fn new<T: GeneralRequirements + Sync + Send + 'static>(x: T) -> Self {
         Self { val: Box::new(x) }
     }
 
@@ -18,7 +17,7 @@ impl DynVar {
         self.val
     }
 
-    pub fn from_raw(val: Box<dyn GeneralRequirements>) -> Self {
+    pub fn from_raw(val: Box<dyn GeneralRequirements + Sync + Send + 'static>) -> Self {
         Self { val }
     }
 
@@ -58,11 +57,17 @@ impl DynVar {
         (*self.val).as_any().type_id() == TypeId::of::<T>()
     }
 
-    pub fn clone_as<T: GeneralRequirements + Clone>(&self) -> Option<Self> {
-        Some(Self{ val: Box::new(self.as_ref::<T>()?.clone()) })
+    pub fn clone_as<T: GeneralRequirements + Clone + Sync + Send + 'static>(&self) -> Option<Self> {
+        Some(Self {
+            val: Box::new(self.as_ref::<T>()?.clone()),
+        })
     }
 
-    pub unsafe fn clone_as_unchecked<T: GeneralRequirements + Clone>(&self) -> Self {
-        Self{ val: Box::new(self.as_ref_unchecked::<T>().clone()) }
+    pub unsafe fn clone_as_unchecked<T: GeneralRequirements + Clone + Sync + Send + 'static>(
+        &self,
+    ) -> Self {
+        Self {
+            val: Box::new(self.as_ref_unchecked::<T>().clone()),
+        }
     }
 }

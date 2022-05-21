@@ -12,10 +12,10 @@ async fn main() {
 }
 
 pub enum TestEvent {
-    Hello((usize, String))
+    Hello((usize, String)),
 }
 
-static TEST_EVENT: &'static EventDef<unique_type::new!(), ()> = &EventDef::new();
+static TEST_EVENT: &'static EventDef<unique_type::new!(), ()> = &unsafe { EventDef::new() };
 
 pub fn fire<Tag: unique_type::Unique, At, Rt>(def: &'static EventDef<Tag, At, Rt>, args: At) -> Rt {
     todo!()

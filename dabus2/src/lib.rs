@@ -12,9 +12,10 @@ extern crate async_trait;
 extern crate derivative;
 
 pub mod bus;
-pub mod stop;
-pub mod util;
 pub mod core;
 pub mod event;
+pub mod interface;
+pub mod stop;
+pub mod util;
 
 pub use event::EventDef;
