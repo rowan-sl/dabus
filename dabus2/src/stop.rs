@@ -8,11 +8,17 @@ pub trait BusStop {
         Self: Sized;
 }
 
+mod seal {
+    pub trait Sealed {}
+}
+
 #[async_trait]
-pub(crate) trait BusStopMech {
+pub trait BusStopMech: seal::Sealed {
     async fn handle_raw_event(&mut self, event_tag_id: TypeId, event: DynVar) -> DynVar;
     fn relevant(&self, event_tag_id: TypeId) -> bool;
 }
+
+impl<T> seal::Sealed for T where T: BusStop + Sized + Send + Sync + 'static {}
 
 #[async_trait]
 impl<T> BusStopMech for T
