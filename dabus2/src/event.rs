@@ -42,7 +42,7 @@ impl<Tag: unique_type::Unique, At, Rt> EventDef<Tag, At, Rt> {
 
 /// abstraction for registering handlers
 pub struct Handlers<HSelf> {
-    pub(crate) handlers: Vec<Box<dyn RawHandlerErased<HSelf = HSelf>>>,
+    pub(crate) handlers: Vec<Box<dyn RawHandlerErased<HSelf = HSelf> + Send + 'static>>,
 }
 
 impl<H: Send + 'static> Handlers<H> {
@@ -50,6 +50,7 @@ impl<H: Send + 'static> Handlers<H> {
         Self { handlers: vec![] }
     }
 
+    // do not the generic async function pointers
     pub async fn handler<
         Tag: unique_type::Unique + Sync + Send + 'static,
         At: Debug + Send + 'static,

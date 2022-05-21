@@ -8,27 +8,42 @@ pub trait BusStop {
         Self: Sized;
 }
 
+#[async_trait]
 pub(crate) trait BusStopMech {
-    fn handle_raw_event(&mut self, event_tag_id: TypeId, event: DynVar) -> DynVar;
+    async fn handle_raw_event(&mut self, event_tag_id: TypeId, event: DynVar) -> DynVar;
+    fn relevant(&self, event_tag_id: TypeId) -> bool;
 }
 
-// impl<T> BusStopMech for T
-// where
-//     T: BusStop + Sized + 'static,
-// {
-//     fn handle_raw_event(
-//         &mut self,
-//         event_tag_id: TypeId,
-//         event: DynVar, /* must be the hidden event type */
-//     ) -> DynVar /* the hidden return type */ {
-//         // TODO make this not query handlers each and every event
-//         let mut handlers = T::registered_handlers(Handlers::new())
-//             .handlers
-//             .into_iter()
-//             .filter(|rh| unsafe { rh.releavant_to(event_tag_id) })
-//             .collect::<Vec<_>>();
-//         debug_assert!(handlers.len() == 1);
-//         let handler = handlers.remove(0);
-//         unsafe { handler.call(self, event) }
-//     }
-// }
+#[async_trait]
+impl<T> BusStopMech for T
+where
+    T: BusStop + Sized + Send + Sync + 'static,
+{
+    async fn handle_raw_event(
+        &mut self,
+        event_tag_id: TypeId,
+        event: DynVar, /* must be the hidden event type */
+    ) -> DynVar /* the hidden return type */ {
+        // TODO make this not query handlers each and every event
+        let mut handlers = T::registered_handlers(Handlers::new())
+            .handlers
+            .into_iter()
+            .filter(|rh| unsafe { rh.releavant_to(event_tag_id) })
+            .collect::<Vec<_>>();
+        debug_assert!(handlers.len() == 1);
+        let handler = handlers.remove(0);
+        let fut = unsafe { handler.call(self, event) };
+        fut.await
+    }
+
+    fn relevant(&self, event_tag_id: TypeId) -> bool {
+        // TODO make this not query handlers each and every event
+        let handlers = T::registered_handlers(Handlers::new())
+            .handlers
+            .into_iter()
+            .filter(|rh| unsafe { rh.releavant_to(event_tag_id) })
+            .collect::<Vec<_>>();
+        debug_assert!(handlers.len() <= 1);
+        !handlers.is_empty()
+    }
+}
