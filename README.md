@@ -14,3 +14,13 @@
 - [ ] tests *triple sigh*
 - [ ] figure out if there should be a distinction between send and query events anymore, and remove it if there is not
 - [ ] document the differences between Send and Query events
+
+## TODO's v2wos
+
+- [ ] docs
+- [ ] tests
+- [ ] backtraces
+- [ ] proper error handling
+- [ ] multi-handler events
+- [ ] more complex event matching (allow handlers to consume an event, after looking at the arguments?)
+- [ ] nested handler calls

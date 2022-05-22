@@ -8,8 +8,8 @@
 extern crate log;
 #[macro_use]
 extern crate async_trait;
-#[macro_use]
-extern crate derivative;
+// #[macro_use]
+// extern crate derivative;
 
 pub mod bus;
 pub mod core;

@@ -2,7 +2,7 @@ use std::{any::TypeId, fmt::Debug, marker::PhantomData};
 
 use crate::core::dyn_var::DynVar;
 
-use futures::future::{BoxFuture, Future};
+use futures::future::Future;
 pub use unique_type;
 
 /// type for declaring events.
@@ -51,19 +51,18 @@ impl<H: Send + 'static> Handlers<H> {
     }
 
     // do not the generic async function pointers
-    pub async fn handler<
+    pub fn handler<
         Tag: unique_type::Unique + Sync + Send + 'static,
         At: Debug + Send + 'static,
-        Rt: Debug + Sync + Send + 'static,
+        Rt: Debug + Sync + Send,
         Fr: Future<Output = Rt> + Sync + Send + 'static,
-        Ft: for<'a> Fn(&'a mut H, At) -> Fr + Sync + Send + 'static,
     >(
         mut self,
         def: &'static EventDef<Tag, At, Rt>,
-        func: Ft,
+        func: for<'a> fn(&'a mut H, At) -> Fr,
     ) -> Self {
-        self.handlers.push(Box::new(RawHandler::<Tag, H, At, Rt> {
-            real_fn: Box::new(move |s, a| Box::pin(func(s, a))),
+        self.handlers.push(Box::new(RawHandler::<Tag, H, At, Rt, Fr> {
+            real_fn: func,
             _tag: PhantomData,
         }));
         let _ = def;
@@ -71,9 +70,8 @@ impl<H: Send + 'static> Handlers<H> {
     }
 }
 
-struct RawHandler<Tag: unique_type::Unique, H, At, Rt> {
-    pub(crate) real_fn:
-        Box<dyn for<'a> Fn(&'a mut H, At) -> BoxFuture<'_, Rt> + Sync + Send + 'static>,
+struct RawHandler<Tag: unique_type::Unique, H, At, Rt, Fr: Future<Output = Rt> + Sync + Send> {
+    pub(crate) real_fn: for<'a> fn(&'a mut H, At) -> Fr,
     pub(crate) _tag: PhantomData<Tag>,
 }
 
@@ -90,7 +88,8 @@ impl<
         H: Send,
         At: Debug + Send + 'static,
         Rt: Debug + Sync + Send + 'static,
-    > RawHandlerErased for RawHandler<Tag, H, At, Rt>
+        Fr: Future<Output = Rt> + Sync + Send,
+    > RawHandlerErased for RawHandler<Tag, H, At, Rt, Fr>
 {
     type HSelf = H;
     /// # Saftey
