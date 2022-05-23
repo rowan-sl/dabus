@@ -71,3 +71,11 @@ impl DynVar {
         }
     }
 }
+
+pub struct UnsafeSendDynVarPtr(pub *mut DynVar);
+unsafe impl Send for UnsafeSendDynVarPtr {}
+
+/// helps with lifetimes
+pub fn borrowed_ptr_mut<'a, T>(r: &'a mut T) -> *mut T {
+    r as *mut T
+}
