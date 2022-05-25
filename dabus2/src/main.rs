@@ -5,7 +5,7 @@ extern crate log;
 #[macro_use]
 extern crate dabus2;
 
-use dabus2::{DABus, BusStop, EventRegister};
+use dabus2::{DABus, BusStop, EventRegister, interface::BusInterface};
 
 #[tokio::main]
 async fn main() {
@@ -34,11 +34,11 @@ impl Printer {
         }
     }
 
-    async fn print(&mut self, to_print: String) {
+    async fn print(&mut self, to_print: String, _i: BusInterface) {
         self.buffer = format!("{}\n{}", self.buffer, to_print);
     }
 
-    async fn flush(&mut self, _: ()) {
+    async fn flush(&mut self, _: (), _i: BusInterface) {
         println!("{}", self.buffer);
     }
 }

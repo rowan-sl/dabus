@@ -6,7 +6,7 @@
 //! 
 //! no touchie
 
-use crate::core::dyn_var::DynVar;
+use crate::{core::dyn_var::DynVar, interface::BusInterface};
 
 use core::marker::PhantomData;
 
@@ -20,7 +20,7 @@ pub fn please_work() {
     struct Test {}
 
     impl Test {
-        pub async fn do_thing(&mut self, n: u8) {
+        pub async fn do_thing(&mut self, n: u8, _i: BusInterface) {
             println!("Called with {n}");
         }
     }
@@ -29,20 +29,20 @@ pub fn please_work() {
         let t = Test {};
         let dyn_fn: Box<dyn HandlerCallableErased> = Box::new(HandlerFn::new(Test::do_thing));
         let mut dyn_t = DynVar::new(t);
-        unsafe { dyn_fn.call(&mut dyn_t, DynVar::new(10)).await };
+        unsafe { dyn_fn.call(&mut dyn_t, DynVar::new(10), BusInterface {}).await };
         drop(dyn_t);
     });
 }
 
 pub trait AsyncFnPtr<'a, H: 'a, At, Rt> {
     type Fut: Future<Output = Rt> + Send + 'a;
-    fn call(self, h: &'a mut H, a: At) -> Self::Fut;
+    fn call(self, h: &'a mut H, a: At, i: BusInterface) -> Self::Fut;
 }
 
-impl<'a, H: 'a, At, Fut: Future + Send + 'a, F: FnOnce(&'a mut H, At) -> Fut> AsyncFnPtr<'a, H, At, Fut::Output> for F {
+impl<'a, H: 'a, At, Fut: Future + Send + 'a, F: FnOnce(&'a mut H, At, BusInterface) -> Fut> AsyncFnPtr<'a, H, At, Fut::Output> for F {
     type Fut = Fut;
-    fn call(self, h: &'a mut H, a: At) -> Self::Fut {
-        self(h, a)
+    fn call(self, h: &'a mut H, a: At, i: BusInterface) -> Self::Fut {
+        self(h, a, i)
     }
 }
 
@@ -65,16 +65,16 @@ where
         }
     }
 
-    pub fn call<'a, 'b>(&'b self, h: &'a mut H, a: At) -> BoxFuture<'a, Rt> {
+    pub fn call<'a, 'b>(&'b self, h: &'a mut H, a: At, i: BusInterface) -> BoxFuture<'a, Rt> {
         let f = self.f;
         Box::pin(async move {
-                f.call(h, a).await
+                f.call(h, a, i).await
         })
     }
 }
 
 pub trait HandlerCallableErased {
-    unsafe fn call<'a>(&'a self, h: &'a mut DynVar, a: DynVar) -> BoxFuture<'a, DynVar>;
+    unsafe fn call<'a>(&'a self, h: &'a mut DynVar, a: DynVar, i: BusInterface) -> BoxFuture<'a, DynVar>;
 }
 
 impl<H, At, Rt, P> HandlerCallableErased for HandlerFn<H, At, Rt, P>
@@ -84,11 +84,11 @@ where
     At: Send + Sync + 'static,
     Rt: Send + Sync + 'static,
 {
-    unsafe fn call<'a>(&'a self, h: &'a mut DynVar, a: DynVar) -> BoxFuture<'a, DynVar> {
+    unsafe fn call<'a>(&'a self, h: &'a mut DynVar, a: DynVar, i: BusInterface) -> BoxFuture<'a, DynVar> {
         Box::pin(async move {
             let h = h.as_mut_unchecked::<H>();
             let a = a.try_to_unchecked::<At>();
-            let r = self.call(h, a).await;
+            let r = self.call(h, a, i).await;
             DynVar::new(r)
         })
     }

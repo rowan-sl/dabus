@@ -1,6 +1,6 @@
 use std::{any::TypeId, fmt::Debug};
 
-use crate::{core::dyn_var::DynVar, event::EventRegister};
+use crate::{core::dyn_var::DynVar, event::EventRegister, interface::BusInterface};
 
 pub trait BusStop {
     fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self>
@@ -14,7 +14,7 @@ mod seal {
 
 #[async_trait]
 pub trait BusStopMech: seal::Sealed {
-    async unsafe fn handle_raw_event(&mut self, event_tag_id: TypeId, event: DynVar) -> DynVar;
+    async unsafe fn handle_raw_event(&mut self, event_tag_id: TypeId, event: DynVar, interface: BusInterface) -> DynVar;
     fn relevant(&self, event_tag_id: TypeId) -> bool;
 }
 
@@ -29,6 +29,7 @@ where
         &mut self,
         event_tag_id: TypeId,
         event: DynVar, /* must be the hidden event type */
+        interface: BusInterface,
     ) -> DynVar /* the hidden return type */ {
         // TODO make this not query handlers each and every event
         let mut handlers = T::registered_handlers(EventRegister::new())
@@ -42,7 +43,7 @@ where
         let moved_self = std::ptr::read::<Self>(self as *mut Self as *const Self);
         let mut dyn_self = DynVar::new(moved_self);
 
-        let fut = handler.1.call(&mut dyn_self, event);
+        let fut = handler.1.call(&mut dyn_self, event, interface);
         let res = fut.await;
 
         let typed_self = dyn_self.try_to_unchecked::<Self>();

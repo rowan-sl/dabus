@@ -1,6 +1,6 @@
 use core::{any::TypeId, fmt::Debug};
 
-use crate::{core::dyn_var::DynVar, event::EventDef, stop::BusStopMech, util::GeneralRequirements};
+use crate::{core::dyn_var::DynVar, event::EventDef, stop::BusStopMech, util::GeneralRequirements, interface::BusInterface};
 
 pub trait BusStopReq: BusStopMech + GeneralRequirements {}
 impl<T: BusStopMech + GeneralRequirements> BusStopReq for T {}
@@ -52,10 +52,14 @@ impl DABus {
             "currently only supports one handler for an event! this WILL change soonTM"
         );
         assert!(!handlers.is_empty(), "no handler matches the event");
+
+        // currently only for design use, no functionality yet
+        let interface = BusInterface {};
+
         let mut handler = handlers.remove(0);
         let result = unsafe {
             handler
-                .handle_raw_event(TypeId::of::<Tag>(), DynVar::new(args))
+                .handle_raw_event(TypeId::of::<Tag>(), DynVar::new(args), interface)
                 .await
                 .try_to::<Rt>()
                 .unwrap()
