@@ -5,6 +5,7 @@ use core::any::TypeId;
 use flume::Sender;
 
 use crate::{core::dyn_var::DynVar, event::EventDef, stop::BusStopMech, util::{GeneralRequirements, dyn_debug::DynDebug}, interface::{BusInterface, BusInterfaceEvent}};
+use error::{FireEventError, BaseFireEventError};
 
 pub trait BusStopReq: BusStopMech + GeneralRequirements {}
 impl<T: BusStopMech + GeneralRequirements> BusStopReq for T {}
@@ -49,13 +50,16 @@ impl DABus {
         &mut self,
         def: &'static EventDef<Tag, At, Rt>,
         args: At,
-    ) -> Rt {
+    ) -> Result<Rt, FireEventError> {
         let mut handlers = self.handlers_for(def);
         assert!(
             handlers.len() < 2,
             "currently only supports one handler for an event! this WILL change soonTM"
         );
-        assert!(!handlers.is_empty(), "no handler matches the event");
+
+        if handlers.is_empty() {
+            Err(FireEventError::from(BaseFireEventError::NoHandler))?
+        }
 
         let (interface_send, _interface_recv): (Sender<BusInterfaceEvent>, _) = flume::unbounded();
         // currently only for design use, no functionality yet
@@ -70,6 +74,6 @@ impl DABus {
                 .unwrap()
         };
         self.registered_stops.push(handler);
-        result
+        Ok(result)
     }
 }
