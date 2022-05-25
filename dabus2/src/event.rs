@@ -1,8 +1,8 @@
-use std::{any::TypeId, fmt::Debug, marker::PhantomData};
+use std::{any::TypeId, fmt::Debug, marker::PhantomData, ops::Deref};
 
-use crate::core::dyn_var::DynVar;
+use crate::{core::dyn_var::DynVar, stop::BusStop};
 
-use futures::future::{Future, BoxFuture};
+use futures::future::{BoxFuture, Future};
 pub use unique_type;
 
 /// type for declaring events.
@@ -41,127 +41,238 @@ impl<Tag: unique_type::Unique, At, Rt> EventDef<Tag, At, Rt> {
 }
 
 /// abstraction for registering handlers
-pub struct Handlers<HSelf: 'static> {
-    pub(crate) handlers: Vec<(TypeId, Box<dyn HandlerCallable>)>,
-    pub(crate) _s: PhantomData<&'static HSelf>,
+pub struct EventRegister<E> {
+    pub(crate) handlers: Vec<(
+        TypeId,
+        E,
+    )>,
 }
 
-impl<H> Handlers<H> {
+impl<E> EventRegister<E> {
     pub(crate) const fn new() -> Self {
-        Self { handlers: vec![], _s: PhantomData }
+        Self { handlers: vec![] }
     }
 
     // do not the generic async function pointers
-    pub fn handler<'a, Tag, At, Rt, Fut>(
+    pub fn handler<Tag, At, Rt, Fut>(
         mut self,
         def: &'static EventDef<Tag, At, Rt>,
-        func: fn(&'a mut H, At) -> Fut,
+        func: fn(At) -> E,
     ) -> Self
     where
         Tag: unique_type::Unique + Send + Sync + 'static,
-        H: Debug + Send + Sync + 'static,
         At: Debug + Send + Sync + 'static,
         Rt: Debug + Send + Sync + 'static,
-        Fut: Future<Output = Rt> + Send + Sync + 'static,
     {
-        self.handlers.push((
-            TypeId::of::<Tag>(),
-            Box::new(func),
-        ));
+
         let _ = def;
         self
     }
 }
 
-#[async_trait]
-pub trait HandlerCallable {
-    async unsafe fn call(self, hself: crate::core::dyn_var::UnsafeSendDynVarPtr, at: DynVar) -> DynVar;
+// #[async_trait]
+// pub trait HandlerCallableLVL2<H: 'static> {
+//     unsafe fn call<'c>(&'c self, hself: &'c mut H, at: DynVar) -> BoxFuture<'_, DynVar>;
+// }
+
+// impl<T, H: 'static, U> HandlerCallableLVL2<H> for T
+// where
+//     T: HandlerCallable<H, Unused = U>
+// {
+//     unsafe fn call<'c>(&'c self, hself: &'c mut H, at: DynVar) -> BoxFuture<'_, DynVar> {
+//         HandlerCallable::call(self, hself, at)
+//     }
+// }
+
+// pub trait HandlerCallableErased<H: 'static> {
+//     unsafe fn call_erased(&self, hself: &mut H, at: DynVar) -> BoxFuture<'_, DynVar>;
+// }
+
+// impl<T, H: 'static, At, Rt, F: 'static> HandlerCallableErased<H> for Box<dyn HandlerCallable<T, H, At, Rt, F> + Sync + Send>
+// where
+//     H: Debug + Send + Sync + 'static,
+//     At: Debug + Send + Sync + 'static,
+//     Rt: Debug + Send + Sync + 'static,
+// {
+//     unsafe fn call_erased(&self, hself: &mut H, at: DynVar) -> BoxFuture<'_, DynVar> {
+//         Box::pin(async {
+//             let at = DynVar::try_to_unchecked::<At>(at);
+//             let res: Rt = <<Self as Deref>::Target as HandlerCallable<T, H, At, Rt, F>>::call(self, hself, at).await;
+//             DynVar::new(res)
+//         })
+//     }
+// }
+
+// pub trait HandlerCallable<T, H: 'static, At, Rt, F> {
+//     unsafe fn call<'c>(&'c self, hself: &'c mut H, at: At) -> BoxFuture<'_, Rt>
+//     where
+//         F: Future<Output = Rt> + Send + Sync + 'c,
+//         T: FunctionPointer<'c, H, At, F>;
+// }
+
+// // impl<'a, T, H, At, Rt, Fut> HandlerCallable<H, At, Rt> for T
+// // where
+// //     H: Debug + Send + Sync + 'static,
+// //     At: Debug + Send + Sync + 'static,
+// //     Rt: Debug + Send + Sync + 'static,
+// //     T: FunctionPointer<'a, H, At, Fut>,
+// //     Fut: Future<Output = Rt> + Send + Sync + 'a,
+// // {
+// //     /// # Saftey
+// //     /// hself and at MUST be the correct types (H and At on the impl block)
+// //     ///
+// //     /// the reference behind hself MUST be valid for 'a (i think) (use crate::core::dyn_var::borrowed_ptr_mut)
+// //     unsafe fn call(&self, hself: &mut H, at: At) -> BoxFuture<'_, Rt>
+// //     {
+// //         Box::pin(async {
+// //             let future = self(hself, at);
+// //             let result = future.await;
+// //             result
+// //         })
+// //         // let at = at.try_to_unchecked::<At>();
+// //         // fn scoped<'h2, 'h1: 'h2, H, At, Rt, Ret, F: Fn(&'h1 mut H, At) -> Ret>(
+// //         //     f: F,
+// //         //     hs: &'h1 mut H,
+// //         //     at: At,
+// //         // ) -> Ret {
+// //         //     f(hs, at)
+// //         // }
+// //         // scoped::<'a, 'c, H, At, Rt, _, _>(
+// //         //     move |hself, at| {
+// //         //         Box::pin(async {
+// //         //             let future = self(hself, at);
+// //         //             let result = future.await;
+// //         //             DynVar::new(result)
+// //         //         })
+// //         //     },
+// //         //     hself,
+// //         //     at,
+// //         // )
+// //     }
+// // }
+
+
+// impl<T, H, At, Rt, Fut> HandlerCallable<T, H, At, Rt, Fut> for T
+// where
+//     T: Send + Sync + 'static,
+//     H: Debug + Send + Sync + 'static,
+//     At: Debug + Send + Sync + 'static,
+//     Rt: Debug + Send + Sync + 'static,
+// {
+//     /// # Saftey
+//     /// hself and at MUST be the correct types (H and At on the impl block)
+//     ///
+//     /// the reference behind hself MUST be valid for 'a (i think) (use crate::core::dyn_var::borrowed_ptr_mut)
+//     unsafe fn call<'c>(self: &'c T, hself: &'c mut H, at: At) -> BoxFuture<'_, Rt>
+//     where
+//         Fut: Future<Output = Rt> + Send + Sync + 'c,
+//         T: FunctionPointer<'c, H, At, Fut>,
+//     {
+//         Box::pin(async {
+//             let future = self(hself, at);
+//             let result = future.await;
+//             result
+//         })
+//     }
+// }
+
+// trait FunctionPointer<'a, A: 'a, B, C>: Fn(&'a mut A, B) -> C {}
+// impl<'a, A: 'a, B, C> FunctionPointer<'a, A, B, C> for fn(&'a mut A, B) -> C {}
+
+#[derive(Debug)]
+struct Test {
+
 }
 
-#[async_trait]
-impl<'a, H, At, Rt, Fut> HandlerCallable for fn(&'a mut H, At) -> Fut
-where
-    H: Debug + Send + Sync + 'static,
-    At: Debug + Send + Sync + 'static,
-    Rt: Debug + Send + Sync + 'static,
-    Fut: Future<Output = Rt> + Send + Sync + 'a,
-{
-    /// # Saftey
-    /// hself and at MUST be the correct types (H and At on the impl block)
-    ///
-    /// the reference behind hself MUST be valid for 'a (i think) (use crate::core::dyn_var::borrowed_ptr_mut)
-    async unsafe fn call(self, hself: crate::core::dyn_var::UnsafeSendDynVarPtr /* since expressing lifetimes like this SUCKS, and raw pointers are not Send or Sync */, at: DynVar) -> DynVar {
-        let hself = (*hself.0).as_mut_unchecked::<H>();
-        let at = at.try_to_unchecked::<At>();
-        let future = self(hself, at);
-        let result = future.await;
-        DynVar::new(result)
+impl Test {
+    pub async fn do_thing(&mut self, n: u8) {
+        println!("Called with {n}");
     }
 }
 
-// struct RawHandler<'a, 'b: 'a, Tag: unique_type::Unique, H: 'a, At, Rt> {
-//     pub(crate) real_fn: Box<dyn Fn(&'a mut H, At) -> BoxFuture<'b, Rt> + Sync + Send + 'b>,
-//     pub(crate) _tag: PhantomData<Tag>,
-// }
+pub async fn test() {
+    let t = Test {};
+    let dyn_fn: Box<dyn HandlerCallableErased> = Box::new(HandlerFn::new(Test::do_thing));
+    let mut dyn_t = DynVar::new(t);
+    unsafe { dyn_fn.call(&mut dyn_t, DynVar::new(10)).await };
+    drop(dyn_t);
+}
 
-// #[async_trait]
-// pub trait RawHandlerErased {
-//     type HSelf;
-//     unsafe fn releavant_to(&self, tag_id: TypeId) -> bool;
-//     async unsafe fn call(&self, hself: &mut Self::HSelf, at: DynVar) -> DynVar;
-// }
+trait AsyncFnPtr<'a, H: 'a, At, Rt> {
+    type Fut: Future<Output = Rt> + Send + 'a;
+    fn call(self, h: &'a mut H, a: At) -> Self::Fut;
+}
 
-// #[async_trait]
-// impl<
-//         'a, 'b, 'c,
-//         Tag: unique_type::Unique + Sync + Send + 'static,
-//         H: Sync + Send + 'a,
-//         At: Debug + Sync + Send,
-//         Rt: Debug + Sync + Send,
-//     > RawHandlerErased for RawHandler<'a, 'b, Tag, H, At, Rt>
-// where
-//     'c: 'a,
-//     'b: 'a,
-// {
-//     type HSelf = H;
-//     /// # Saftey
-//     /// tag_id must be the TypeId of the Tag of the event being checked for inequality with
-//     unsafe fn releavant_to(&self, tag_id: TypeId) -> bool {
-//         TypeId::of::<Tag>() == tag_id
-//     }
+impl<'a, H: 'a, At, Fut: Future + Send + 'a, F: FnOnce(&'a mut H, At) -> Fut> AsyncFnPtr<'a, H, At, Fut::Output> for F {
+    type Fut = Fut;
+    fn call(self, h: &'a mut H, a: At) -> Self::Fut {
+        self(h, a)
+    }
+}
 
-//     async unsafe fn call(&'c self, hself: &'c mut Self::HSelf, at: DynVar) -> DynVar
-//     {
-//         let at = at.try_to_unchecked::<At>();
-//         let res = (self.real_fn)(hself, at);
-//         DynVar::new::<Rt>(res.await)
-//     }
-// }
+struct HandlerFn<H: 'static, At: 'static, Rt: 'static, P>
+where
+    P: for<'a> AsyncFnPtr<'a, H, At, Rt> + Copy
+{
+    f: P,
+    _t: PhantomData<&'static (H, At, Rt)>
+}
 
+impl<H: 'static + Send, At: 'static + Send, Rt: 'static, P: 'static> HandlerFn<H, At, Rt, P>
+where
+    P: for<'a> AsyncFnPtr<'a, H, At, Rt> + Send + Copy,
+{
+    pub fn new(f: P) -> Self {
+        Self {
+            f,
+            _t: PhantomData
+        }
+    }
 
-// // no touchie
-// //
-// // if, like me who wrote it, you touchie, i give you my condolences
-// pub trait ToBoxed<'a, 'b: 'a, H: 'a, At, Rt> {
-//     fn to_boxed(self) -> Box<dyn Fn(&'a mut H, At) -> BoxFuture<'b, Rt> + 'b>;
-// }
+    pub fn call<'a, 'b>(&'b self, h: &'a mut H, a: At) -> BoxFuture<'a, Rt> {
+        let f = self.f;
+        Box::pin(async move {
+                f.call(h, a).await
+        })
+    }
+}
 
-// impl<'a, 'b: 'a, H: 'a, At, Rt, F, Fut> ToBoxed<'a, 'b, H, At, Rt> for F
-// where
-//     F: Fn(&'a mut H, At) -> Fut + 'b,
-//     Fut: ::futures::Future<Output = Rt> + Send + Sync + 'b,
-// {
-//     fn to_boxed(self) -> Box<dyn Fn(&'a mut H, At) -> BoxFuture<'b, Rt> + 'b> {
-//         Box::new(move |h, at| Box::pin(self(h, at)))
-//     }
-// }
+trait HandlerCallableErased {
+    unsafe fn call<'a>(&'a self, h: &'a mut DynVar, a: DynVar) -> BoxFuture<'a, DynVar>;
+}
 
-// pub trait ToBoxedPtr<'a, 'b: 'a, H: 'static, At: 'static, Rt: 'static> {
-//     fn to_boxed(self) -> Box<dyn Fn(&'a mut H, At) -> BoxFuture<'b, Rt> + 'b>;
-// }
+impl<H, At, Rt, P> HandlerCallableErased for HandlerFn<H, At, Rt, P>
+where
+    P: for<'a> AsyncFnPtr<'a, H, At, Rt> + Send + Sync + Copy + 'static,
+    H: Debug + Send + Sync + 'static,
+    At: Debug + Send + Sync + 'static,
+    Rt: Debug + Send + Sync + 'static,
+{
+    unsafe fn call<'a>(&'a self, h: &'a mut DynVar, a: DynVar) -> BoxFuture<'a, DynVar> {
+        Box::pin(async move {
+            let h = h.as_mut_unchecked::<H>();
+            let a = a.try_to_unchecked::<At>();
+            let r = self.call(h, a).await;
+            DynVar::new(r)
+        })
+    }
+}
 
-// impl<'a, 'b: 'a, H: 'static, At: 'static, Rt: 'static, Fut: Future<Output=Rt> + Send + Sync + 'b> ToBoxedPtr<'a, 'b, H, At, Rt> for fn(&'a mut H, At) -> Fut {
-//     fn to_boxed(self) -> Box<dyn Fn(&'a mut H, At) -> BoxFuture<'b, Rt> + 'b> {
-//         Box::new(move |h, a| Box::pin(self(h, a)))
-//     }
-// }
+struct LifetimeToken<'a, T: 'a>(&'a mut T);
+
+fn limited_lifetime<F>(h: &mut Test, a: u8, f: F) where F: for<'a> AsyncFnPtr<'a, Test, u8, ()> {
+    let token = LifetimeToken(h);
+    f.call(token.0, a);
+    drop(token);
+}
+
+fn call_ltd<'s: 'h, 'h, H, At, Rt, Fut>(h: &'s mut H, a: At, ptr: fn(&'h mut H, At) -> Fut) -> BoxFuture<'s, Rt>
+where
+    H: Sync + Send + 'static,
+    At: Sync + Send + 'static,
+    Fut: Future<Output = Rt> + Sync + Send + 's,
+{
+    Box::pin(async move {
+        ptr(h, a).await
+    })
+}
