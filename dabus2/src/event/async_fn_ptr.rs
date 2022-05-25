@@ -12,27 +12,27 @@ use core::marker::PhantomData;
 
 use futures::future::{Future, BoxFuture};
 
-#[test]
-pub fn please_work() {
-    use tokio::runtime::Builder;
-
-    #[derive(Debug)]
-    struct Test {}
-
-    impl Test {
-        pub async fn do_thing(&mut self, n: u8, _i: BusInterface) {
-            println!("Called with {n}");
-        }
-    }
-
-    Builder::new_multi_thread().enable_all().build().unwrap().block_on(async move{
-        let t = Test {};
-        let dyn_fn: Box<dyn HandlerCallableErased> = Box::new(HandlerFn::new(Test::do_thing));
-        let mut dyn_t = DynVar::new(t);
-        unsafe { dyn_fn.call(&mut dyn_t, DynVar::new(10), BusInterface {}).await };
-        drop(dyn_t);
-    });
-}
+// #[test]
+// pub fn please_work() {
+//     use tokio::runtime::Builder;
+//
+//     #[derive(Debug)]
+//     struct Test {}
+//
+//     impl Test {
+//         pub async fn do_thing(&mut self, n: u8, _i: BusInterface) {
+//             println!("Called with {n}");
+//         }
+//     }
+//
+//     Builder::new_multi_thread().enable_all().build().unwrap().block_on(async move{
+//         let t = Test {};
+//         let dyn_fn: Box<dyn HandlerCallableErased> = Box::new(HandlerFn::new(Test::do_thing));
+//         let mut dyn_t = DynVar::new(t);
+//         unsafe { dyn_fn.call(&mut dyn_t, DynVar::new(10), BusInterface {}).await };
+//         drop(dyn_t);
+//     });
+// }
 
 pub trait AsyncFnPtr<'a, H: 'a, At, Rt> {
     type Fut: Future<Output = Rt> + Send + 'a;

@@ -22,4 +22,5 @@ pub mod macros;
 pub use event::{EventDef, EventRegister};
 pub use bus::DABus;
 pub use stop::BusStop;
+pub use interface::BusInterface;
 

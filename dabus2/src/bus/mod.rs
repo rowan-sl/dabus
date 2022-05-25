@@ -1,6 +1,10 @@
-use core::{any::TypeId, fmt::Debug};
+pub mod error;
 
-use crate::{core::dyn_var::DynVar, event::EventDef, stop::BusStopMech, util::GeneralRequirements, interface::BusInterface};
+use core::any::TypeId;
+
+use flume::Sender;
+
+use crate::{core::dyn_var::DynVar, event::EventDef, stop::BusStopMech, util::{GeneralRequirements, dyn_debug::DynDebug}, interface::{BusInterface, BusInterfaceEvent}};
 
 pub trait BusStopReq: BusStopMech + GeneralRequirements {}
 impl<T: BusStopMech + GeneralRequirements> BusStopReq for T {}
@@ -39,8 +43,8 @@ impl DABus {
 
     pub async fn fire<
         Tag: unique_type::Unique,
-        At: Debug + Sync + Send + 'static,
-        Rt: Debug + Sync + Send + 'static,
+        At: DynDebug + Sync + Send + 'static,
+        Rt: DynDebug + Sync + Send + 'static,
     >(
         &mut self,
         def: &'static EventDef<Tag, At, Rt>,
@@ -53,8 +57,9 @@ impl DABus {
         );
         assert!(!handlers.is_empty(), "no handler matches the event");
 
+        let (interface_send, _interface_recv): (Sender<BusInterfaceEvent>, _) = flume::unbounded();
         // currently only for design use, no functionality yet
-        let interface = BusInterface {};
+        let interface = BusInterface::new(interface_send);
 
         let mut handler = handlers.remove(0);
         let result = unsafe {
