@@ -2,7 +2,7 @@
 #[macro_use]
 extern crate log;
 
-use dabus2::{bus::DABus, stop::BusStop, EventDef};
+use dabus2::{bus::DABus, stop::BusStop, EventDef, event::EventRegister};
 
 #[tokio::main]
 async fn main() {
@@ -10,17 +10,9 @@ async fn main() {
         .filter_level(log::LevelFilter::Trace)
         .init();
     let mut bus = DABus::new();
-    dabus2::event::test().await;
-    // bus.register(Printer::new());
-    // bus.fire(PRINT_EVENT, "Hello, World!".to_string()).await;
-    // drop(bus);
-    // unsafe {
-    //     PRINTER.take().unwrap().flush(()).await;
-    // }
-}
-
-pub enum TestEvent {
-    Hello((usize, String)),
+    bus.register(Printer::new());
+    bus.fire(PRINT_EVENT, "Hello, World!".to_string()).await;
+    bus.fire(FLUSH_EVENT, ()).await;
 }
 
 static PRINT_EVENT: &'static EventDef<unique_type::new!(), String> = &unsafe { EventDef::new() };
@@ -31,8 +23,6 @@ pub struct Printer {
     buffer: String,
 }
 
-static mut PRINTER: Option<&'static mut Printer> = None;
-
 impl Printer {
     pub fn new() -> Self {
         Self {
@@ -40,11 +30,8 @@ impl Printer {
         }
     }
 
-    async fn print(&'static mut self, to_print: String) {
+    async fn print(&mut self, to_print: String) {
         self.buffer = format!("{}\n{}", self.buffer, to_print);
-        unsafe {
-            PRINTER = Some(self);
-        }
     }
 
     async fn flush(&mut self, _: ()) {
@@ -52,13 +39,10 @@ impl Printer {
     }
 }
 
-// impl BusStop for Printer {
-//     fn registered_handlers(h: dabus2::event::Handlers<Self>) -> dabus2::event::Handlers<Self>
-//     where
-//         Self: Sized,
-//     {
-//         // h.handler(PRINT_EVENT, Self::print)
-//             // .handler(FLUSH_EVENT, Self::flush)
-//         todo!()
-//     }
-// }
+impl BusStop for Printer {
+    fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self>
+    {
+        h.handler(PRINT_EVENT, Self::print)
+            .handler(FLUSH_EVENT, Self::flush)
+    }
+}

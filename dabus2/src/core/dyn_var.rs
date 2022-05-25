@@ -1,9 +1,8 @@
-use std::any::TypeId;
+use std::{any::TypeId, fmt::Debug};
 
 use crate::util::GeneralRequirements;
 
 /// value must be Debug, just to make things easy
-#[derive(Debug)]
 pub struct DynVar {
     val: Box<dyn GeneralRequirements + Sync + Send + 'static>,
 }
@@ -72,10 +71,10 @@ impl DynVar {
     }
 }
 
-pub struct UnsafeSendDynVarPtr(pub *mut DynVar);
-unsafe impl Send for UnsafeSendDynVarPtr {}
-
-/// helps with lifetimes
-pub fn borrowed_ptr_mut<'a, T>(r: &'a mut T) -> *mut T {
-    r as *mut T
+impl Debug for DynVar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DynVar")
+            .field("val", self.val.as_dbg())
+            .finish()
+    }
 }

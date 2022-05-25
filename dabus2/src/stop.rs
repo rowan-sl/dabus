@@ -3,8 +3,9 @@ use std::{any::TypeId, fmt::Debug};
 use crate::{core::dyn_var::DynVar, event::EventRegister};
 
 pub trait BusStop {
-    type Event;
-    fn events(h: EventRegister<<Self as BusStop>::Event>) -> EventRegister<<Self as BusStop>::Event>;
+    fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self>
+    where
+        Self: Sized;
 }
 
 mod seal {
@@ -19,42 +20,45 @@ pub trait BusStopMech: seal::Sealed {
 
 impl<T> seal::Sealed for T where T: BusStop + Sized + Send + Sync + 'static {}
 
-// #[async_trait]
-// impl<T> BusStopMech for T
-// where
-//     T: BusStop + Debug + Sized + Send + Sync + 'static,
-// {
-//     async unsafe fn handle_raw_event(
-//         &mut self,
-//         event_tag_id: TypeId,
-//         event: DynVar, /* must be the hidden event type */
-//     ) -> DynVar /* the hidden return type */ {
-//         // TODO make this not query handlers each and every event
-//         let mut handlers = T::registered_handlers(EventRegister::new())
-//             .handlers
-//             .into_iter()
-//             .filter(|rh| rh.0 == event_tag_id)
-//             .collect::<Vec<_>>();
-//         debug_assert!(handlers.len() == 1);
-//         let handler = handlers.remove(0);
-//         // let fut = handler.1.call_erased(self, event);
-//         // fut.await
-//         todo!()
-//     }
+#[async_trait]
+impl<T> BusStopMech for T
+where
+    T: BusStop + Debug + Sized + Send + Sync + 'static,
+{
+    async unsafe fn handle_raw_event(
+        &mut self,
+        event_tag_id: TypeId,
+        event: DynVar, /* must be the hidden event type */
+    ) -> DynVar /* the hidden return type */ {
+        // TODO make this not query handlers each and every event
+        let mut handlers = T::registered_handlers(EventRegister::new())
+            .handlers
+            .into_iter()
+            .filter(|rh| rh.0 == event_tag_id)
+            .collect::<Vec<_>>();
+        debug_assert!(handlers.len() == 1);
+        let handler = handlers.remove(0);
 
-//     fn relevant(&self, event_tag_id: TypeId) -> bool {
-//         // TODO make this not query handlers each and every event
-//         let handlers = T::registered_handlers(EventRegister::new())
-//             .handlers
-//             .into_iter()
-//             .filter(|rh| rh.0 == event_tag_id)
-//             .collect::<Vec<_>>();
-//         debug_assert!(handlers.len() <= 1);
-//         !handlers.is_empty()
-//     }
-// }
+        let moved_self = std::ptr::read::<Self>(self as *mut Self as *const Self);
+        let mut dyn_self = DynVar::new(moved_self);
 
-// VERY unsafe
-unsafe fn detach<'a, 'b, T>(x: &'a mut T) -> &'b mut T {
-    &mut *(x as *mut T)
+        let fut = handler.1.call(&mut dyn_self, event);
+        let res = fut.await;
+
+        let typed_self = dyn_self.try_to_unchecked::<Self>();
+        std::ptr::write::<Self>(self as *mut Self, typed_self);
+
+        res
+    }
+
+    fn relevant(&self, event_tag_id: TypeId) -> bool {
+        // TODO make this not query handlers each and every event
+        let handlers = T::registered_handlers(EventRegister::new())
+            .handlers
+            .into_iter()
+            .filter(|rh| rh.0 == event_tag_id)
+            .collect::<Vec<_>>();
+        debug_assert!(handlers.len() <= 1);
+        !handlers.is_empty()
+    }
 }
