@@ -2,7 +2,10 @@
 #[macro_use]
 extern crate log;
 
-use dabus2::{bus::DABus, stop::BusStop, EventDef, event::EventRegister};
+#[macro_use]
+extern crate dabus2;
+
+use dabus2::{DABus, BusStop, EventRegister};
 
 #[tokio::main]
 async fn main() {
@@ -15,8 +18,9 @@ async fn main() {
     bus.fire(FLUSH_EVENT, ()).await;
 }
 
-static PRINT_EVENT: &'static EventDef<unique_type::new!(), String> = &unsafe { EventDef::new() };
-static FLUSH_EVENT: &'static EventDef<unique_type::new!(), ()> = &unsafe { EventDef::new() };
+event!(PRINT_EVENT, String, ());
+event!(FLUSH_EVENT, (), ());
+
 
 #[derive(Debug)]
 pub struct Printer {

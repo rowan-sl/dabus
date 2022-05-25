@@ -17,5 +17,9 @@ pub mod event;
 pub mod interface;
 pub mod stop;
 pub mod util;
+pub mod macros;
 
-pub use event::EventDef;
+pub use event::{EventDef, EventRegister};
+pub use bus::DABus;
+pub use stop::BusStop;
+
