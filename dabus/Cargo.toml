@@ -15,7 +15,6 @@ categories = ["asynchronous", "rust-patterns"]
 [dependencies]
 flume = "0.10.12"
 log = "0.4.16"
-tokio = { version = "1", features = ["full"] }
 async-trait = "0.1"
 futures = "0.3.21"
 thiserror = "1.0.31"
