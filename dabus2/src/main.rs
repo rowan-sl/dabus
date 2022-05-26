@@ -7,7 +7,7 @@ extern crate dabus2;
 
 use anyhow::Result;
 
-use dabus2::{DABus, BusStop, EventRegister, BusInterface};
+use dabus2::{BusInterface, BusStop, DABus, EventRegister};
 
 // #[tokio::main]
 async fn asmain() -> Result<()> {
@@ -18,6 +18,7 @@ async fn asmain() -> Result<()> {
     bus.register(Printer::new());
     bus.fire(PRINT_EVENT, "Hello, World!".to_string()).await?;
     bus.fire(FLUSH_EVENT, ()).await?;
+    bus.fire(HELLO_EVENT, ()).await?;
     Ok(())
 }
 
@@ -40,7 +41,7 @@ fn main() -> Result<()> {
 
 event!(PRINT_EVENT, String, ());
 event!(FLUSH_EVENT, (), ());
-
+event!(HELLO_EVENT, (), ());
 
 #[derive(Debug)]
 pub struct Printer {
@@ -61,12 +62,19 @@ impl Printer {
     async fn flush(&mut self, _: (), _i: BusInterface) {
         println!("{}", self.buffer);
     }
+
+    async fn hello_world(&mut self, _: (), mut i: BusInterface) {
+        i.fire(PRINT_EVENT, "Hello, World!".to_string())
+            .await
+            .unwrap();
+        i.fire(FLUSH_EVENT, ()).await.unwrap();
+    }
 }
 
 impl BusStop for Printer {
-    fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self>
-    {
+    fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self> {
         h.handler(PRINT_EVENT, Self::print)
             .handler(FLUSH_EVENT, Self::flush)
+            .handler(HELLO_EVENT, Self::hello_world)
     }
 }

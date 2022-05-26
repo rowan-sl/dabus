@@ -4,10 +4,10 @@
 //! - casting dyn T -> dyn Any (not as cursed)
 
 pub mod async_util;
+pub mod dyn_debug;
 pub mod dyn_downcast;
 pub mod dyn_typename;
 pub mod possibly_clone;
-pub mod dyn_debug;
 
 // all of these traits are implemeted for any T, so you dont have to explicitly require them
 pub use dyn_downcast::AsAny;

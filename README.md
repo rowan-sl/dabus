@@ -24,3 +24,4 @@
 - [ ] multi-handler events
 - [ ] more complex event matching (allow handlers to consume an event, after looking at the arguments?)
 - [ ] nested handler calls
+- [ ] error forwarding

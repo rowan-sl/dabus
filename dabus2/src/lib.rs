@@ -15,12 +15,11 @@ pub mod bus;
 pub mod core;
 pub mod event;
 pub mod interface;
+pub mod macros;
 pub mod stop;
 pub mod util;
-pub mod macros;
 
-pub use event::{EventDef, EventRegister};
 pub use bus::DABus;
-pub use stop::BusStop;
+pub use event::{EventDef, EventRegister};
 pub use interface::BusInterface;
-
+pub use stop::BusStop;

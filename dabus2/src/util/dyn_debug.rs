@@ -1,11 +1,10 @@
-use core::fmt::{Debug, self, Formatter};
+use core::fmt::{self, Debug, Formatter};
 
 struct DefaultDbg;
 
 impl Debug for DefaultDbg {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("{dyn DynDebug}")
-            .finish()
+        f.debug_struct("{dyn DynDebug}").finish()
     }
 }
 
