@@ -15,17 +15,17 @@ mod seal {
 }
 
 #[async_trait]
-pub trait BusStopMech: seal::Sealed {
+pub trait BusStopMech: Sized + seal::Sealed {
     async unsafe fn handle_raw_event(
-        &mut self,
+        self,
         event_tag_id: TypeId,
         event: DynVar,
         interface: BusInterface,
-    ) -> DynVar;
+    ) -> (Self, DynVar);
     fn relevant(&self, event_tag_id: TypeId) -> bool;
 }
 
-impl<T> seal::Sealed for T where T: BusStop + Sized + Send + Sync + 'static {}
+impl<T> seal::Sealed for T where T: BusStop + Debug + Sized + Send + Sync + 'static {}
 
 #[async_trait]
 impl<T> BusStopMech for T
@@ -33,11 +33,11 @@ where
     T: BusStop + Debug + Sized + Send + Sync + 'static,
 {
     async unsafe fn handle_raw_event(
-        &mut self,
+        mut self,
         event_tag_id: TypeId,
         event: DynVar, /* must be the hidden event type */
         interface: BusInterface,
-    ) -> DynVar /* the hidden return type */ {
+    ) -> (Self, DynVar) /* the hidden return type */ {
         // TODO make this not query handlers each and every event
         let mut handlers = T::registered_handlers(EventRegister::new())
             .handlers
@@ -47,16 +47,14 @@ where
         debug_assert!(handlers.len() == 1);
         let handler = handlers.remove(0);
 
-        let moved_self = std::ptr::read::<Self>(self as *mut Self as *const Self);
-        let mut dyn_self = DynVar::new(moved_self);
+        let mut dyn_self = DynVar::new(self);
 
         let fut = handler.1.call(&mut dyn_self, event, interface);
         let res = fut.await;
 
         let typed_self = dyn_self.try_to_unchecked::<Self>();
-        std::ptr::write::<Self>(self as *mut Self, typed_self);
 
-        res
+        (typed_self, res)
     }
 
     fn relevant(&self, event_tag_id: TypeId) -> bool {
@@ -71,11 +69,69 @@ where
     }
 }
 
-pub trait BusStopReq: BusStopMech + GeneralRequirements {}
-impl<T: BusStopMech + GeneralRequirements> BusStopReq for T {}
+
+
+// this probably can be combined with BusStopMech's behavior to simplify things
+pub struct BusStopMechContainer<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> {
+    inner: Option<B>,
+}
+
+impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> BusStopMechContainer<B> {
+    pub const fn new(inner: B) -> Self {
+        Self { inner: Some(inner) }
+    }
+
+    pub async unsafe fn handle_raw_event(
+        &mut self,
+        event_tag_id: TypeId,
+        event: DynVar, /* must be the hidden event type */
+        interface: BusInterface,
+    ) -> DynVar {
+        let moved_self = self.inner.take().unwrap();
+        let (moved_self, res) = moved_self
+            .handle_raw_event(event_tag_id, event, interface)
+            .await;
+        self.inner = Some(moved_self);
+        res
+    }
+
+    pub fn relevant(&mut self, event_tag_id: TypeId) -> bool {
+        self.inner.as_mut().unwrap().relevant(event_tag_id)
+    }
+}
+
+#[async_trait]
+pub trait DynBusStopContainer {
+    async unsafe fn handle_raw_event(
+        &mut self,
+        event_tag_id: TypeId,
+        event: DynVar, /* must be the hidden event type */
+        interface: BusInterface,
+    ) -> DynVar;
+    fn relevant(&mut self, event_tag_id: TypeId) -> bool;
+}
+
+#[async_trait]
+impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> DynBusStopContainer for BusStopMechContainer<B> {
+    async unsafe fn handle_raw_event(
+        &mut self,
+        event_tag_id: TypeId,
+        event: DynVar, /* must be the hidden event type */
+        interface: BusInterface,
+    ) -> DynVar {
+        BusStopMechContainer::handle_raw_event(self, event_tag_id, event, interface).await
+    }
+
+    fn relevant(&mut self, event_tag_id: TypeId) -> bool {
+        BusStopMechContainer::relevant(self, event_tag_id)
+    }
+}
+
+pub trait BusStopReq: DynBusStopContainer + GeneralRequirements {}
+impl<T: DynBusStopContainer + GeneralRequirements> BusStopReq for T {}
 
 pub struct BusStopContainer {
-    pub inner: Box<dyn BusStopReq + Send + Sync + 'static>,
+    pub(crate) inner: Box<dyn BusStopReq + Send + Sync + 'static>,
 }
 
 impl BusStopContainer {
@@ -89,11 +145,8 @@ impl BusStopContainer {
         event: DynVar, /* must be the hidden event type */
         interface: BusInterface,
     ) -> (Self, DynVar) {
-        let res = self
-            .inner
-            .handle_raw_event(event_tag_id, event, interface)
-            .await;
-        (self, res)
+        let ret = self.inner.handle_raw_event(event_tag_id, event, interface).await;
+        (self, ret)
     }
 
     pub fn relevant(&mut self, event_tag_id: TypeId) -> bool {

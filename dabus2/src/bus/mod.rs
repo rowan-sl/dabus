@@ -1,6 +1,7 @@
 pub mod error;
 
 use core::any::TypeId;
+use std::fmt::Debug;
 
 use flume::{r#async::RecvFut, Receiver, Sender};
 use futures::future::BoxFuture;
@@ -9,11 +10,11 @@ use crate::{
     core::dyn_var::DynVar,
     event::EventDef,
     interface::{BusInterface, BusInterfaceEvent},
-    stop::{BusStopContainer, BusStopReq},
+    stop::{BusStopContainer, BusStopMechContainer},
     util::{
         async_util::{OneOf, OneOfResult},
         dyn_debug::DynDebug,
-    },
+    }, BusStop,
 };
 use error::{BaseFireEventError, FireEventError};
 
@@ -41,12 +42,12 @@ impl DABus {
         }
     }
 
-    pub fn register<T: BusStopReq + Send + Sync + 'static>(&mut self, stop: T) {
+    pub fn register<T: BusStop + Debug + Send + Sync + 'static>(&mut self, stop: T) {
         self.registered_stops
-            .push(BusStopContainer::new(Box::new(stop)));
+            .push(BusStopContainer::new(Box::new(BusStopMechContainer::new(stop))));
     }
 
-    pub fn deregister<T: BusStopReq + Send + Sync + 'static>(&mut self) -> Option<T> {
+    pub fn deregister<T: BusStop + Send + Sync + 'static>(&mut self) -> Option<T> {
         self.registered_stops
             .drain_filter(|stop| (*stop.inner).as_any().type_id() == TypeId::of::<T>())
             .nth(0)
