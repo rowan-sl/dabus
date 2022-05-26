@@ -3,6 +3,7 @@ name = "dabus"
 version = "0.4.2"
 edition = "2021"
 license = "MIT"
+readme = "../README.md"
 authors = ["Rowan S-L <rowan@fawkes.io>"]
 description = "Dynamic Aplication Controll Bus - an asynchronous, event based module system for thoes who want to move fast and *not* break things"
 repository = "https://github.com/rowan-sl/dabus/"
