@@ -5,6 +5,6 @@ macro_rules! event {
             $crate::event::unique_type::new!(),
             $arg,
             $ret,
-        > = &unsafe { $crate::event::EventDef::new() };
+        > = &unsafe { $crate::event::EventDef::new(concat!(stringify!($name))) };
     };
 }

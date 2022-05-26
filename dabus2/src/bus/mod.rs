@@ -14,7 +14,8 @@ use crate::{
     util::{
         async_util::{OneOf, OneOfResult},
         dyn_debug::DynDebug,
-    }, BusStop,
+    },
+    BusStop, EventRegister,
 };
 use error::{BaseFireEventError, FireEventError};
 
@@ -43,20 +44,43 @@ impl DABus {
     }
 
     pub fn register<T: BusStop + Debug + Send + Sync + 'static>(&mut self, stop: T) {
+        info!("Registering stop {:?}", stop);
+        debug!(
+            "Stop handlers: {:#?}",
+            <T as BusStop>::registered_handlers(EventRegister::new())
+                .handlers
+                .into_iter()
+                .map(|h| { h.2 })
+                .collect::<Vec<_>>()
+        );
         self.registered_stops
-            .push(BusStopContainer::new(Box::new(BusStopMechContainer::new(stop))));
+            .push(BusStopContainer::new(Box::new(BusStopMechContainer::new(
+                stop,
+            ))));
     }
 
-    pub fn deregister<T: BusStop + Send + Sync + 'static>(&mut self) -> Option<T> {
-        self.registered_stops
+    pub fn deregister<T: BusStop + Debug + Send + Sync + 'static>(&mut self) -> Option<T> {
+        let stop = self
+            .registered_stops
             .drain_filter(|stop| (*stop.inner).as_any().type_id() == TypeId::of::<T>())
             .nth(0)
-            .map(|item| *item.inner.to_any().downcast().unwrap())
+            .map(|item| *item.inner.to_any().downcast().unwrap());
+        info!("Deregistering stop {:?}", stop);
+        stop
     }
 
     fn handlers_for(&mut self, def: TypeId) -> Vec<BusStopContainer> {
+        debug!("Looking for handlers for {:?}", def);
         self.registered_stops
-            .drain_filter(|stop| stop.relevant(def))
+            .drain_filter(|stop| {
+                if stop.relevant(def) {
+                    trace!("Found match: {:?}", stop.debug());
+                    true
+                } else {
+                    trace!("Mismatch: {:?}", stop.debug());
+                    false
+                }
+            })
             .collect()
     }
 
@@ -67,6 +91,7 @@ impl DABus {
             "currently only supports one handler for an event! this WILL change soonTM"
         );
         if handlers.is_empty() {
+            error!("no handlers found for {:?}", def);
             Err(FireEventError::from(BaseFireEventError::NoHandler))?
         }
         let handler = handlers.remove(0);
@@ -137,6 +162,7 @@ impl DABus {
                                     responder,
                                 } = stack.pop().unwrap()
                                 {
+                                    self.registered_stops.push(handler);
                                     responder.send(Ok(handler_return)).unwrap();
                                     let recev_fut = interface_recv.clone().into_recv_async();
                                     stack.push(Frame::ReadyToPoll {
@@ -167,6 +193,7 @@ impl DABus {
         def: &'static EventDef<Tag, At, Rt>,
         args: At,
     ) -> Result<Rt, FireEventError> {
+        info!("Firing initial event: {:?}", def.name);
         let _ = def;
         let def = TypeId::of::<Tag>();
         let args = DynVar::new(args);

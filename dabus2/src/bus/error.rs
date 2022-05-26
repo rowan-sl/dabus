@@ -1,5 +1,5 @@
 #[derive(Debug, thiserror::Error)]
-#[error("Failed to execute event!")]
+#[error("Failed to execute event!\n{err:?}")]
 pub struct FireEventError {
     err: BaseFireEventError,
 }

@@ -12,7 +12,6 @@ use core::marker::PhantomData;
 
 use futures::future::{BoxFuture, Future};
 
-
 pub trait AsyncFnPtr<'a, H: 'a, At, Rt> {
     type Fut: Future<Output = Rt> + Send + 'a;
     fn call(self, h: &'a mut H, a: At, i: BusInterface) -> Self::Fut;

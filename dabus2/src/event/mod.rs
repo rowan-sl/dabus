@@ -1,6 +1,9 @@
 pub mod async_fn_ptr;
 
-use std::{any::TypeId, marker::PhantomData};
+use std::{
+    any::{type_name, TypeId},
+    marker::PhantomData,
+};
 
 pub use unique_type;
 
@@ -19,6 +22,7 @@ pub struct EventDef<
     At,
     Rt = (), /* if At is `()`, than this event is eligeble for lazy evaluation */
 > {
+    pub(crate) name: &'static str,
     _tag: PhantomData<*const Tag /* dropck */>,
     _at: PhantomData<*const At /* also dropck */>,
     _rt: PhantomData<*const Rt /* also dropck */>,
@@ -32,8 +36,9 @@ impl<Tag: unique_type::Unique, At, Rt> EventDef<Tag, At, Rt> {
     /// # Saftey
     /// you MUST use unique_type::new!() for the type parameter Tag,
     /// otherwise **THINGS WILL BREAK, INCLUDING YOUR MIND AFTER HOURS OF DEBUGGING**
-    pub const unsafe fn new() -> Self {
+    pub const unsafe fn new(name: &'static str) -> Self {
         Self {
+            name,
             _tag: PhantomData,
             _at: PhantomData,
             _rt: PhantomData,
@@ -46,6 +51,7 @@ pub struct EventRegister<S> {
     pub(crate) handlers: Vec<(
         TypeId,
         Box<dyn HandlerCallableErased + Send + Sync + 'static>,
+        String,
     )>,
     _stop_t: PhantomData<S>,
 }
@@ -66,8 +72,18 @@ impl<S: Sync + Send + 'static> EventRegister<S> {
         Rt: Send + Sync + 'static,
         P: for<'a> AsyncFnPtr<'a, S, At, Rt> + Copy + Send + Sync + 'static,
     {
-        self.handlers
-            .push((TypeId::of::<Tag>(), Box::new(HandlerFn::new(func))));
+        self.handlers.push((
+            TypeId::of::<Tag>(),
+            Box::new(HandlerFn::new(func)),
+            format!(
+                "handler: {}, name: {}, args: {}, return: {}, type_id: {:?}",
+                type_name::<S>(),
+                def.name,
+                type_name::<At>(),
+                type_name::<Rt>(),
+                TypeId::of::<Tag>(),
+            ),
+        ));
         let _ = def;
         self
     }

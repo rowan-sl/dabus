@@ -1,7 +1,7 @@
 use std::{any::TypeId, fmt::Debug};
 
 use crate::{
-    core::dyn_var::DynVar, event::EventRegister, interface::BusInterface, util::GeneralRequirements,
+    core::dyn_var::DynVar, event::EventRegister, interface::BusInterface, util::{GeneralRequirements, dyn_debug::DynDebug},
 };
 
 pub trait BusStop {
@@ -69,8 +69,6 @@ where
     }
 }
 
-
-
 // this probably can be combined with BusStopMech's behavior to simplify things
 pub struct BusStopMechContainer<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> {
     inner: Option<B>,
@@ -98,6 +96,10 @@ impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> BusStopMechCo
     pub fn relevant(&mut self, event_tag_id: TypeId) -> bool {
         self.inner.as_mut().unwrap().relevant(event_tag_id)
     }
+
+    pub fn debug(&self) -> &dyn Debug {
+        self.inner.as_dbg()
+    }
 }
 
 #[async_trait]
@@ -109,10 +111,13 @@ pub trait DynBusStopContainer {
         interface: BusInterface,
     ) -> DynVar;
     fn relevant(&mut self, event_tag_id: TypeId) -> bool;
+    fn debug(&self) -> &dyn Debug;
 }
 
 #[async_trait]
-impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> DynBusStopContainer for BusStopMechContainer<B> {
+impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> DynBusStopContainer
+    for BusStopMechContainer<B>
+{
     async unsafe fn handle_raw_event(
         &mut self,
         event_tag_id: TypeId,
@@ -124,6 +129,10 @@ impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> DynBusStopCon
 
     fn relevant(&mut self, event_tag_id: TypeId) -> bool {
         BusStopMechContainer::relevant(self, event_tag_id)
+    }
+
+    fn debug(&self) -> &dyn Debug {
+        self.debug()
     }
 }
 
@@ -145,11 +154,18 @@ impl BusStopContainer {
         event: DynVar, /* must be the hidden event type */
         interface: BusInterface,
     ) -> (Self, DynVar) {
-        let ret = self.inner.handle_raw_event(event_tag_id, event, interface).await;
+        let ret = self
+            .inner
+            .handle_raw_event(event_tag_id, event, interface)
+            .await;
         (self, ret)
     }
 
     pub fn relevant(&mut self, event_tag_id: TypeId) -> bool {
         self.inner.relevant(event_tag_id)
+    }
+
+    pub fn debug(&self) -> &dyn Debug {
+        self.inner.debug()
     }
 }

@@ -16,6 +16,7 @@ async fn asmain() -> Result<()> {
         .init();
     let mut bus = DABus::new();
     bus.register(Printer::new());
+    bus.register(HelloHandler);
     bus.fire(PRINT_EVENT, "Hello, World!".to_string()).await?;
     bus.fire(FLUSH_EVENT, ()).await?;
     bus.fire(HELLO_EVENT, ()).await?;
@@ -44,6 +45,24 @@ event!(FLUSH_EVENT, (), ());
 event!(HELLO_EVENT, (), ());
 
 #[derive(Debug)]
+pub struct HelloHandler;
+
+impl HelloHandler {
+    async fn hello_world(&mut self, _: (), mut i: BusInterface) {
+        i.fire(PRINT_EVENT, "Hello, World!".to_string())
+            .await
+            .unwrap();
+        i.fire(FLUSH_EVENT, ()).await.unwrap();
+    }
+}
+
+impl BusStop for HelloHandler {
+    fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self> {
+        h.handler(HELLO_EVENT, Self::hello_world)
+    }
+}
+
+#[derive(Debug)]
 pub struct Printer {
     buffer: String,
 }
@@ -61,13 +80,7 @@ impl Printer {
 
     async fn flush(&mut self, _: (), _i: BusInterface) {
         println!("{}", self.buffer);
-    }
-
-    async fn hello_world(&mut self, _: (), mut i: BusInterface) {
-        i.fire(PRINT_EVENT, "Hello, World!".to_string())
-            .await
-            .unwrap();
-        i.fire(FLUSH_EVENT, ()).await.unwrap();
+        self.buffer.clear();
     }
 }
 
@@ -75,6 +88,5 @@ impl BusStop for Printer {
     fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self> {
         h.handler(PRINT_EVENT, Self::print)
             .handler(FLUSH_EVENT, Self::flush)
-            .handler(HELLO_EVENT, Self::hello_world)
     }
 }
