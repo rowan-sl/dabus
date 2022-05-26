@@ -1,115 +1,92 @@
-use std::fmt::{Debug, Display};
+#[allow(unused_imports)]
+#[macro_use]
+extern crate log;
 
-use async_trait::async_trait;
-use dabus::{
-    decl_event,
-    event::{BusEvent, EventType},
-    stop::EventActionType,
-    util::GeneralRequirements,
-    BusInterface, BusStop, DABus,
-};
+#[macro_use]
+extern crate dabus2;
 
-#[tokio::main]
-async fn main() {
+use anyhow::Result;
+
+use dabus2::{BusInterface, BusStop, DABus, EventRegister};
+
+// #[tokio::main]
+async fn asmain() -> Result<()> {
     pretty_env_logger::formatted_builder()
         .filter_level(log::LevelFilter::Trace)
         .init();
-
     let mut bus = DABus::new();
-    bus.register(Printer);
-    bus.register(Hello);
-    bus.fire(HELLO_WORLD, ()).await.unwrap();
-    let handler = bus.deregister::<Printer>();
-    assert!(handler.is_some());
+    bus.register(Printer::new());
+    bus.register(HelloHandler);
+    bus.fire(PRINT_EVENT, "Hello, World!".to_string()).await?;
+    bus.fire(FLUSH_EVENT, ()).await?;
+    bus.fire(HELLO_EVENT, ()).await?;
+    Ok(())
 }
 
-pub enum PrinterEvent {
-    Display(Box<dyn Display + Sync + Send>),
-    Debug((Box<dyn Debug + Sync + Send>, bool /* pretty-print */)),
-    Print(String),
+#[cfg(not(miri))]
+fn main() -> Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(asmain())
 }
 
-decl_event!(pub(self), PRINTER_DISPLAY, PrinterEvent, Display, Box<dyn Display + Sync + Send>,       String, None,     EventType::Query);
-decl_event!(pub(self), PRINTER_DEBUG,   PrinterEvent, Debug,   (Box<dyn Debug + Sync + Send>, bool), String, None,     EventType::Query);
-decl_event!(pub(self), PRINTER_PRINT,   PrinterEvent, Print,   String,                               (),     Some(()), EventType::Send);
+// custom builder with no io support enabled so that it runs under miri
+#[cfg(miri)]
+fn main() -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()?
+        .block_on(asmain())
+}
+
+event!(PRINT_EVENT, String, ());
+event!(FLUSH_EVENT, (), ());
+event!(HELLO_EVENT, (), ());
 
 #[derive(Debug)]
-struct Printer;
+pub struct HelloHandler;
 
-#[async_trait]
+impl HelloHandler {
+    async fn hello_world(&mut self, _: (), mut i: BusInterface) {
+        i.fire(PRINT_EVENT, "Hello, World!".to_string())
+            .await
+            .unwrap();
+        i.fire(FLUSH_EVENT, ()).await.unwrap();
+    }
+}
+
+impl BusStop for HelloHandler {
+    fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self> {
+        h.handler(HELLO_EVENT, Self::hello_world)
+    }
+}
+
+#[derive(Debug)]
+pub struct Printer {
+    buffer: String,
+}
+
+impl Printer {
+    pub fn new() -> Self {
+        Self {
+            buffer: String::new(),
+        }
+    }
+
+    async fn print(&mut self, to_print: String, _i: BusInterface) {
+        self.buffer = format!("{}\n{}", self.buffer, to_print);
+    }
+
+    async fn flush(&mut self, _: (), _i: BusInterface) {
+        println!("{}", self.buffer);
+        self.buffer.clear();
+    }
+}
+
 impl BusStop for Printer {
-    type Event = PrinterEvent;
-
-    async fn event(
-        &mut self,
-        event: Self::Event,
-        _bus: BusInterface,
-    ) -> Option<Box<dyn GeneralRequirements + Send + 'static>> {
-        match event {
-            PrinterEvent::Debug((debuggable, prettyprint)) => Some(Box::new(if prettyprint {
-                format!("{:#?}", debuggable)
-            } else {
-                format!("{:?}", debuggable)
-            })),
-            PrinterEvent::Display(displayable) => Some(Box::new(format!("{}", displayable))),
-            PrinterEvent::Print(to_print) => {
-                println!("{}", to_print);
-                None
-            }
-        }
-    }
-
-    fn map_shared_event(
-        &self,
-        event: &BusEvent,
-    ) -> Option<(Box<dyn FnOnce(BusEvent) -> Self::Event>, EventActionType)> {
-        Some((
-            Box::new(event.map_fn_if::<Self::Event, Self::Event, _>(|x| x)?),
-            EventActionType::Consume,
-        ))
-    }
-}
-
-pub enum HelloEvent {
-    Hello(()),
-}
-
-decl_event!(pub(self), HELLO_WORLD, HelloEvent, Hello, (), (), Some(()), EventType::Send);
-
-#[derive(Debug)]
-struct Hello;
-
-#[async_trait]
-impl BusStop for Hello {
-    type Event = HelloEvent;
-
-    async fn event(
-        &mut self,
-        event: Self::Event,
-        mut bus: BusInterface,
-    ) -> Option<Box<dyn GeneralRequirements + Send + 'static>> {
-        match event {
-            HelloEvent::Hello(()) => {
-                let to_print = bus
-                    .fire(
-                        PRINTER_DEBUG,
-                        (Box::new("Hello, World!".to_string()), false),
-                    )
-                    .await
-                    .unwrap();
-                bus.fire(PRINTER_PRINT, to_print).await.unwrap();
-                None
-            }
-        }
-    }
-
-    fn map_shared_event(
-        &self,
-        event: &BusEvent,
-    ) -> Option<(Box<dyn FnOnce(BusEvent) -> Self::Event>, EventActionType)> {
-        Some((
-            Box::new(event.map_fn_if::<Self::Event, Self::Event, _>(|x| x)?),
-            EventActionType::Consume,
-        ))
+    fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self> {
+        h.handler(PRINT_EVENT, Self::print)
+            .handler(FLUSH_EVENT, Self::flush)
     }
 }

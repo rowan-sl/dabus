@@ -1,6 +1,6 @@
 [package]
 name = "dabus"
-version = "0.2.1"
+version = "0.4.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -16,3 +16,5 @@ futures = "0.3.21"
 async-recursion = "1.0.0"
 thiserror = "1.0.31"
 derivative = "2.2.0"
+unique-type = "0.1.0"
+anyhow = "1.0.57"

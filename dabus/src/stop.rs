@@ -1,179 +1,171 @@
-use std::{any::Any, fmt::Debug};
+use std::{any::TypeId, fmt::Debug};
 
 use crate::{
-    event::{BusEvent, EventType},
-    interface::BusInterface,
-    util::{GeneralRequirements, PossiblyClone, TypeNamed},
+    core::dyn_var::DynVar, event::EventRegister, interface::BusInterface, util::{GeneralRequirements, dyn_debug::DynDebug},
 };
 
-/// Various ways that an event can be passed to a handler
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EventActionType {
-    /// consume the event.
-    ///
-    /// the handler is given the original unique copy of the event, and no clone is made (can be run on non-clone events)
-    ///
-    /// if multiple handlers request to consume an event, you should NOT rely on any particular handler to get priority
-    Consume,
-    /// take a copy of the event, the original event can be passed on to other handlers
-    HandleCopy,
+pub trait BusStop {
+    fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self>
+    where
+        Self: Sized;
+}
+
+mod seal {
+    pub trait Sealed {}
 }
 
 #[async_trait]
-pub trait BusStop: Debug /* deal with it */ + Any /* i swear to god */ {
-    /// the Event type passed to [`BusStop::event`]
-    type Event: PossiblyClone + Any + Sync + Send + 'static;
-
-    /// Called when an event occurs
-    ///
-    /// ...
-    ///
-    /// ...
-    ///
-    /// *crickets*
-    ///
-    /// ...
-    ///
-    /// this needs better documentation
-    async fn event(
-        &mut self,
-        event: Self::Event,
-        bus: BusInterface,
-    ) -> Option<Box<dyn GeneralRequirements + Send + 'static>>;//mabey make this a bit nicer/clearer what is supposed to be returned?
-
-    /// Checks if a **send type** event is relevant to the current function,
-    /// returning a conversion function and the handling method
-    ///
-    /// may be called multiple times for one event, and MUST return the same each time
-    ///
-    /// # Returns
-    /// if the event is relevant to the function, returns Some with the method to handle it, if it is not relevant, returns None
-    ///
-    /// # Purity
-    /// this function should not depend on external state,
-    /// or modify local state (output MUST be repeateable if called multiple times)
-    fn map_shared_event(
-        &self,
-        event: &BusEvent,
-    ) -> Option<(Box<dyn FnOnce(BusEvent) -> Self::Event>, EventActionType)>;
+pub trait BusStopMech: Sized + seal::Sealed {
+    async unsafe fn handle_raw_event(
+        self,
+        event_tag_id: TypeId,
+        event: DynVar,
+        interface: BusInterface,
+    ) -> (Self, DynVar);
+    fn relevant(&self, event_tag_id: TypeId) -> bool;
 }
+
+impl<T> seal::Sealed for T where T: BusStop + Debug + Sized + Send + Sync + 'static {}
 
 #[async_trait]
-pub(crate) trait BusStopMech: Debug + Any {
-    async fn raw_event(
-        &mut self,
-        event: &mut Option<BusEvent>,
-        etype: EventType,
-        bus: BusInterface,
-    ) -> Result<RawEventReturn, HandleEventError>;
-
-    #[must_use]
-    fn raw_action(&mut self, event: &BusEvent, etype: EventType) -> RawAction;
-}
-
-pub enum RawEventReturn {
-    Response(BusEvent /* response */),
-    // processed, but no response (send type event)
-    Processed,
-}
-
-// watch the magic happen
-#[async_trait]
-impl<E, T> BusStopMech for T
+impl<T> BusStopMech for T
 where
-    E: PossiblyClone + Any + Sync + Send + 'static,
-    T: BusStop<Event = E> + Send,
+    T: BusStop + Debug + Sized + Send + Sync + 'static,
 {
-    /// **IMPORTANT** make shure that the handlers are sorted by how they consume `event` before running them,
-    /// and it should be an error if more than one tries to consume a event
-    async fn raw_event(
+    async unsafe fn handle_raw_event(
+        mut self,
+        event_tag_id: TypeId,
+        event: DynVar, /* must be the hidden event type */
+        interface: BusInterface,
+    ) -> (Self, DynVar) /* the hidden return type */ {
+        // TODO make this not query handlers each and every event
+        let mut handlers = T::registered_handlers(EventRegister::new())
+            .handlers
+            .into_iter()
+            .filter(|rh| rh.0 == event_tag_id)
+            .collect::<Vec<_>>();
+        debug_assert!(handlers.len() == 1);
+        let handler = handlers.remove(0);
+
+        let mut dyn_self = DynVar::new(self);
+
+        let fut = handler.1.call(&mut dyn_self, event, interface);
+        let res = fut.await;
+
+        let typed_self = dyn_self.try_to_unchecked::<Self>();
+
+        (typed_self, res)
+    }
+
+    fn relevant(&self, event_tag_id: TypeId) -> bool {
+        // TODO make this not query handlers each and every event
+        let handlers = T::registered_handlers(EventRegister::new())
+            .handlers
+            .into_iter()
+            .filter(|rh| rh.0 == event_tag_id)
+            .collect::<Vec<_>>();
+        debug_assert!(handlers.len() <= 1);
+        !handlers.is_empty()
+    }
+}
+
+// this probably can be combined with BusStopMech's behavior to simplify things
+pub struct BusStopMechContainer<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> {
+    inner: Option<B>,
+}
+
+impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> BusStopMechContainer<B> {
+    pub const fn new(inner: B) -> Self {
+        Self { inner: Some(inner) }
+    }
+
+    pub async unsafe fn handle_raw_event(
         &mut self,
-        // if this is None after raw_event is called, then the event is consumed and wont get to any other handler
-        event: &mut Option<BusEvent>,
-        etype: EventType,
-        bus: BusInterface,
-    ) -> Result<RawEventReturn, HandleEventError> {
-        debug_assert!(event.is_some(), "Event state is not valid!");
-
-        let id = event.as_ref().unwrap().uuid();
-
-        let event_args =
-            match self.raw_action(event.as_ref().unwrap().try_ref_event().unwrap(), etype) {
-                RawAction::NoConversion | RawAction::TypeMismatch => unreachable!(),
-                RawAction::QueryEvent => {
-                    let taken = event.take().unwrap();
-                    let event = taken.is_into::<E>().unwrap();
-                    *event
-                }
-                RawAction::SendEvent(atype) => {
-                    let cvt_fn = self.map_shared_event(event.as_ref().unwrap()).unwrap().0;
-                    match atype {
-                        EventActionType::Consume => cvt_fn(event.take().unwrap()),
-                        EventActionType::HandleCopy => cvt_fn(
-                            event
-                                .as_ref()
-                                .unwrap()
-                                .try_clone_event::<E>()
-                                .expect("Event must be Clone in order to use HandleCopy"),
-                        ),
-                    }
-                }
-            };
-
-        match etype {
-            EventType::Query => match self.event(event_args, bus).await {
-                Some(response) => Ok(RawEventReturn::Response(BusEvent::new_raw(response, id))),
-                None => Err(HandleEventError::QueryNoResponse),
-            },
-            EventType::Send => {
-                let ret = self.event(event_args, bus).await;
-                if ret.is_some() {
-                    Err(HandleEventError::SendSomeResponse(format!(
-                        "Some({})",
-                        ret.unwrap().to_any().type_name()
-                    )))
-                } else {
-                    Ok(RawEventReturn::Processed)
-                }
-            }
-        }
+        event_tag_id: TypeId,
+        event: DynVar, /* must be the hidden event type */
+        interface: BusInterface,
+    ) -> DynVar {
+        let moved_self = self.inner.take().unwrap();
+        let (moved_self, res) = moved_self
+            .handle_raw_event(event_tag_id, event, interface)
+            .await;
+        self.inner = Some(moved_self);
+        res
     }
 
-    #[must_use]
-    fn raw_action(&mut self, event: &BusEvent, etype: EventType) -> RawAction {
-        match etype {
-            EventType::Query => RawAction::QueryEvent,
-            EventType::Send => {
-                if let Some((_, acttype)) = self.map_shared_event(event) {
-                    RawAction::SendEvent(acttype)
-                } else {
-                    RawAction::NoConversion
-                }
-            }
-        }
+    pub fn relevant(&mut self, event_tag_id: TypeId) -> bool {
+        self.inner.as_mut().unwrap().relevant(event_tag_id)
+    }
+
+    pub fn debug(&self) -> &dyn Debug {
+        self.inner.as_dbg()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RawAction {
-    /// failure of type check
-    TypeMismatch,
-    /// failure of Send event maping
-    NoConversion,
-    /// success, event type is Query (EventActionType::Consume is implied)
-    QueryEvent,
-    /// success, event type is Send, and event action is provided
-    SendEvent(EventActionType),
+#[async_trait]
+pub trait DynBusStopContainer {
+    async unsafe fn handle_raw_event(
+        &mut self,
+        event_tag_id: TypeId,
+        event: DynVar, /* must be the hidden event type */
+        interface: BusInterface,
+    ) -> DynVar;
+    fn relevant(&mut self, event_tag_id: TypeId) -> bool;
+    fn debug(&self) -> &dyn Debug;
 }
 
-#[derive(Clone, Debug, thiserror::Error)]
-pub enum HandleEventError {
-    #[error("Query events must have a response")]
-    QueryNoResponse,
-    #[error(
-        "Send events must not have a response\
-    Expected `None`, found `{0}`\
-    "
-    )]
-    SendSomeResponse(String),
+#[async_trait]
+impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> DynBusStopContainer
+    for BusStopMechContainer<B>
+{
+    async unsafe fn handle_raw_event(
+        &mut self,
+        event_tag_id: TypeId,
+        event: DynVar, /* must be the hidden event type */
+        interface: BusInterface,
+    ) -> DynVar {
+        BusStopMechContainer::handle_raw_event(self, event_tag_id, event, interface).await
+    }
+
+    fn relevant(&mut self, event_tag_id: TypeId) -> bool {
+        BusStopMechContainer::relevant(self, event_tag_id)
+    }
+
+    fn debug(&self) -> &dyn Debug {
+        self.debug()
+    }
+}
+
+pub trait BusStopReq: DynBusStopContainer + GeneralRequirements {}
+impl<T: DynBusStopContainer + GeneralRequirements> BusStopReq for T {}
+
+pub struct BusStopContainer {
+    pub(crate) inner: Box<dyn BusStopReq + Send + Sync + 'static>,
+}
+
+impl BusStopContainer {
+    pub const fn new(inner: Box<dyn BusStopReq + Send + Sync + 'static>) -> Self {
+        Self { inner }
+    }
+
+    pub async unsafe fn handle_raw_event(
+        mut self,
+        event_tag_id: TypeId,
+        event: DynVar, /* must be the hidden event type */
+        interface: BusInterface,
+    ) -> (Self, DynVar) {
+        let ret = self
+            .inner
+            .handle_raw_event(event_tag_id, event, interface)
+            .await;
+        (self, ret)
+    }
+
+    pub fn relevant(&mut self, event_tag_id: TypeId) -> bool {
+        self.inner.relevant(event_tag_id)
+    }
+
+    pub fn debug(&self) -> &dyn Debug {
+        self.inner.debug()
+    }
 }

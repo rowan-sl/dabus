@@ -5,7 +5,7 @@ use std::any::Any;
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use std::any::Any;
 ///
 /// // you have this struct

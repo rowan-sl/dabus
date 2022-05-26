@@ -12,12 +12,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "anyhow"
-version = "1.0.57"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08f9b8508dccb7687a1d6c4ce66b2b0ecef467c94667de27d8d7fe1f8d2a9cdc"
-
-[[package]]
 name = "async-recursion"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -93,24 +87,6 @@ dependencies = [
  "pretty_env_logger",
  "thiserror",
  "tokio",
- "uuid",
-]
-
-[[package]]
-name = "dabus2"
-version = "0.4.0"
-dependencies = [
- "anyhow",
- "async-recursion",
- "async-trait",
- "derivative",
- "flume",
- "futures",
- "log",
- "pretty_env_logger",
- "thiserror",
- "tokio",
- "unique-type",
  "uuid",
 ]
 
@@ -611,12 +587,6 @@ name = "unicode-xid"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
-
-[[package]]
-name = "unique-type"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65276803d5c0b9aeb522fffd31e97ec312a60344f6d345dfa640e809038c740f"
 
 [[package]]
 name = "uuid"
