@@ -6,7 +6,7 @@ license = "MIT"
 authors = ["Rowan S-L <rowan@fawkes.io>"]
 description = "Dynamic Aplication Controll Bus - an asynchronous, event based module system for thoes who want to move fast and *not* break things"
 repository = "https://github.com/rowan-sl/dabus/"
-keywords = ["module", "runtime", "dynamic", "bus", "async", "message"]
+keywords = ["module", "runtime", "bus", "async", "message"]
 categories = ["asynchronous", "rust-patterns"]
 
 
