@@ -2,6 +2,13 @@
 name = "dabus"
 version = "0.4.0"
 edition = "2021"
+license = "MIT"
+authors = ["Rowan S-L <rowan@fawkes.io>"]
+description = "Dynamic Aplication Controll Bus - an asynchronous, event based module system for thoes who want to move fast and *not* break things"
+repository = "https://github.com/rowan-sl/dabus/"
+keywords = ["module", "runtime", "dynamic", "bus", "async", "message"]
+categories = ["asynchronous", "rust-patterns"]
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

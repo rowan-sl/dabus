@@ -3,11 +3,11 @@
 extern crate log;
 
 #[macro_use]
-extern crate dabus2;
+extern crate dabus;
 
 use anyhow::Result;
 
-use dabus2::{BusInterface, BusStop, DABus, EventRegister};
+use dabus::{BusInterface, BusStop, DABus, EventRegister};
 
 // #[tokio::main]
 async fn asmain() -> Result<()> {
