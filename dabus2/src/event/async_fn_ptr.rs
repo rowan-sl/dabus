@@ -46,6 +46,7 @@ impl<'a, H: 'a, At, Fut: Future + Send + 'a, F: FnOnce(&'a mut H, At, BusInterfa
     }
 }
 
+#[derive(Clone)]
 pub struct HandlerFn<H: 'static, At: 'static, Rt: 'static, P>
 where
     P: for<'a> AsyncFnPtr<'a, H, At, Rt> + Copy

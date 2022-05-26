@@ -70,8 +70,7 @@ impl DABus {
             handler
                 .handle_raw_event(TypeId::of::<Tag>(), DynVar::new(args), interface)
                 .await
-                .try_to::<Rt>()
-                .unwrap()
+                .try_to_unchecked::<Rt>()
         };
         self.registered_stops.push(handler);
         Ok(result)
