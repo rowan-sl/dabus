@@ -4,14 +4,13 @@ use core::any::TypeId;
 
 use flume::Sender;
 
-use crate::{core::dyn_var::DynVar, event::EventDef, stop::BusStopMech, util::{GeneralRequirements, dyn_debug::DynDebug}, interface::{BusInterface, BusInterfaceEvent}};
+use crate::{core::dyn_var::DynVar, event::EventDef, stop::{BusStopContainer, BusStopReq}, util::dyn_debug::DynDebug, interface::{BusInterface, BusInterfaceEvent}};
 use error::{FireEventError, BaseFireEventError};
 
-pub trait BusStopReq: BusStopMech + GeneralRequirements {}
-impl<T: BusStopMech + GeneralRequirements> BusStopReq for T {}
+
 
 pub struct DABus {
-    registered_stops: Vec<Box<dyn BusStopReq + 'static>>,
+    registered_stops: Vec<BusStopContainer>,
 }
 
 impl DABus {
@@ -22,20 +21,20 @@ impl DABus {
     }
 
     pub fn register<T: BusStopReq>(&mut self, stop: T) {
-        self.registered_stops.push(Box::new(stop));
+        self.registered_stops.push(BusStopContainer::new(Box::new(stop)));
     }
 
     pub fn deregister<T: BusStopReq>(&mut self) -> Option<T> {
         self.registered_stops
-            .drain_filter(|stop| (*stop).as_any().type_id() == TypeId::of::<T>())
+            .drain_filter(|stop| (*stop.inner).as_any().type_id() == TypeId::of::<T>())
             .nth(0)
-            .map(|item| *item.to_any().downcast().unwrap())
+            .map(|item| *item.inner.to_any().downcast().unwrap())
     }
 
     fn handlers_for<Tag: unique_type::Unique, At, Rt>(
         &mut self,
         def: &'static EventDef<Tag, At, Rt>,
-    ) -> Vec<Box<dyn BusStopReq + 'static>> {
+    ) -> Vec<BusStopContainer> {
         let _ = def; // here for seminatics
         self.registered_stops
             .drain_filter(|stop| stop.relevant(TypeId::of::<Tag>()))
@@ -65,14 +64,14 @@ impl DABus {
         // currently only for design use, no functionality yet
         let interface = BusInterface::new(interface_send);
 
-        let mut handler = handlers.remove(0);
-        let result = unsafe {
-            handler
+        let handler = handlers.remove(0);
+        Ok(unsafe {
+            let (handler, result) = handler
                 .handle_raw_event(TypeId::of::<Tag>(), DynVar::new(args), interface)
-                .await
-                .try_to_unchecked::<Rt>()
-        };
-        self.registered_stops.push(handler);
-        Ok(result)
+                .await;
+            self.registered_stops.push(handler);
+            result.try_to_unchecked::<Rt>()
+        })
+
     }
 }

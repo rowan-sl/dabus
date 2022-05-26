@@ -1,6 +1,6 @@
 use std::{any::TypeId, fmt::Debug};
 
-use crate::{core::dyn_var::DynVar, event::EventRegister, interface::BusInterface};
+use crate::{core::dyn_var::DynVar, event::EventRegister, interface::BusInterface, util::GeneralRequirements};
 
 pub trait BusStop {
     fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self>
@@ -61,5 +61,34 @@ where
             .collect::<Vec<_>>();
         debug_assert!(handlers.len() <= 1);
         !handlers.is_empty()
+    }
+}
+
+pub trait BusStopReq: BusStopMech + GeneralRequirements {}
+impl<T: BusStopMech + GeneralRequirements> BusStopReq for T {}
+
+pub struct BusStopContainer {
+    pub inner: Box<dyn BusStopReq + 'static>
+}
+
+impl BusStopContainer {
+    pub const fn new(inner: Box<dyn BusStopReq + 'static>) -> Self {
+        Self {
+            inner
+        }
+    }
+
+    pub async unsafe fn handle_raw_event(
+        mut self,
+        event_tag_id: TypeId,
+        event: DynVar, /* must be the hidden event type */
+        interface: BusInterface,
+    ) -> (Self, DynVar) {
+        let res = self.inner.handle_raw_event(event_tag_id, event, interface).await;
+        (self, res)
+    }
+
+    pub fn relevant(&mut self, event_tag_id: TypeId) -> bool {
+        self.inner.relevant(event_tag_id)
     }
 }
