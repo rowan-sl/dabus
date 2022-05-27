@@ -1,9 +1,10 @@
 use std::any::TypeId;
 
 use flume::Sender;
+use futures::pending;
 
 use crate::{
-    bus::error::FireEventError, core::dyn_var::DynVar, util::dyn_debug::DynDebug, EventDef,
+    bus::error::{FireEventError, CallEvent}, core::dyn_var::DynVar, util::dyn_debug::DynDebug, EventDef,
 };
 
 pub(crate) enum BusInterfaceEvent {
@@ -11,6 +12,10 @@ pub(crate) enum BusInterfaceEvent {
         def: TypeId,
         args: DynVar,
         responder: Sender<Result<DynVar, FireEventError>>,
+        trace_data: CallEvent,
+    },
+    FwdError {
+        error: FireEventError,
     },
 }
 
@@ -38,6 +43,7 @@ impl BusInterface {
         def: &'static EventDef<Tag, At, Rt>,
         args: At,
     ) -> Result<Rt, FireEventError> {
+        let trace_data = CallEvent::from_event_def(def, &args);
         let _ = def;
         let def = TypeId::of::<Tag>();
         let args = DynVar::new(args);
@@ -47,6 +53,7 @@ impl BusInterface {
                 def,
                 args,
                 responder,
+                trace_data,
             })
             .unwrap();
         Ok(response
@@ -57,41 +64,40 @@ impl BusInterface {
             .unwrap())
     }
 
-    // unimplemented as this needs to be re-designed
-    // /// takes a error (from a nested call, presumablely) and forwards it to the caller of the current event (via the runtime and a deal with the devil)
-    // ///
-    // /// this is a easy way to handle errors, as it will forward the error, and can produce nice backtraces (soonTM)
-    // ///
-    // /// this returns ! because as soon as this is polled by the runtime (i think) the future of the bus event will be dropped.
-    // /// (hopefully that wont do anything bad?)
-    // pub async fn fwd_bus_err(
-    //     self, /* not needed, but just to enforce the this-is-the-last-thing-you-do theme */
-    //     error: FireEventError,
-    // ) -> ! {
-    //     self.channel
-    //         .send(BusInterfaceEvent::FwdError { error })
-    //         .unwrap();
-    //     pending!();
-    //     unsafe {
-    //         // anyone who gets this far deserves it
-    //         std::hint::unreachable_unchecked()
-    //     }
-    // }
+    /// takes a error (from a nested call, presumablely) and forwards it to the caller of the current event (via the runtime and a deal with the devil)
+    ///
+    /// this is a easy way to handle errors, as it will forward the error, and can produce nice backtraces (soonTM)
+    ///
+    /// this returns ! because as soon as this is polled by the runtime (i think) the future of the bus event will be dropped.
+    /// (hopefully that wont do anything bad?)
+    pub async fn fwd_bus_err(
+        self, /* not needed, but just to enforce the this-is-the-last-thing-you-do theme */
+        error: FireEventError,
+    ) -> ! {
+        self.channel
+            .send(BusInterfaceEvent::FwdError { error })
+            .unwrap();
+        pending!();
+        unsafe {
+            // anyone who gets this far deserves it
+            std::hint::unreachable_unchecked()
+        }
+    }
 }
 
-// /// Utility for handling bus errors inside of bus handlers
-// #[async_trait]
-// pub trait BusErrorUtil<T> {
-//     /// unwraps an `Result`, or forwards the error to [`BusInterface::fwd_bus_err`]
-//     async fn unwrap_or_fwd(self, bus: BusInterface) -> T;
-// }
+/// Utility for handling bus errors inside of bus handlers
+#[async_trait]
+pub trait BusErrorUtil<T> {
+    /// unwraps an `Result`, or forwards the error to [`BusInterface::fwd_bus_err`]
+    async fn unwrap_or_fwd(self, bus: BusInterface) -> T;
+}
 
-// #[async_trait]
-// impl<T: Send> BusErrorUtil<T> for Result<T, FireEventError> {
-//     async fn unwrap_or_fwd(self, bus: BusInterface) -> T {
-//         match self {
-//             Ok(x) => x,
-//             Err(err) => bus.fwd_bus_err(err).await,
-//         }
-//     }
-// }
+#[async_trait]
+impl<T: Send> BusErrorUtil<T> for Result<T, FireEventError> {
+    async fn unwrap_or_fwd(self, bus: BusInterface) -> T {
+        match self {
+            Ok(x) => x,
+            Err(err) => bus.fwd_bus_err(err).await,
+        }
+    }
+}

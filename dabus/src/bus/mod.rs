@@ -1,7 +1,7 @@
 pub mod error;
 
 use core::any::TypeId;
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
 
 use flume::{r#async::RecvFut, Receiver, Sender};
 use futures::future::BoxFuture;
@@ -15,19 +15,23 @@ use crate::{
         async_util::{OneOf, OneOfResult},
         dyn_debug::DynDebug,
     },
-    BusStop, EventRegister,
+    BusStop, EventRegister, bus::error::{CallTrace, CallEvent},
 };
 use error::{BaseFireEventError, FireEventError};
+
+use self::error::Resolution;
 
 enum Frame {
     ReadyToPoll {
         interface_recv: Receiver<BusInterfaceEvent>,
         recev_fut: RecvFut<'static, BusInterfaceEvent>,
-        handler_fut: BoxFuture<'static, (BusStopContainer, DynVar)>,
+        handler: Arc<BusStopContainer>,
+        handler_fut: BoxFuture<'static, DynVar>,
     },
     AwaitingNestedCall {
         interface_recv: Receiver<BusInterfaceEvent>,
-        handler_fut: BoxFuture<'static, (BusStopContainer, DynVar)>,
+        handler: Arc<BusStopContainer>,
+        handler_fut: BoxFuture<'static, DynVar>,
         responder: Sender<Result<DynVar, FireEventError>>,
     },
 }
@@ -63,9 +67,9 @@ impl DABus {
     pub fn deregister<T: BusStop + Debug + Send + Sync + 'static>(&mut self) -> Option<T> {
         let stop = self
             .registered_stops
-            .drain_filter(|stop| (*stop.inner).as_any().type_id() == TypeId::of::<T>())
+            .drain_filter(|stop| (*stop.inner.try_lock().unwrap()).as_any().type_id() == TypeId::of::<T>())
             .nth(0)
-            .map(|item| *item.inner.to_any().downcast().unwrap());
+            .map(|item| *item.inner.into_inner().to_any().downcast().unwrap());
         info!("Deregistering stop {:?}", stop);
         stop
     }
@@ -100,27 +104,36 @@ impl DABus {
         let interface = BusInterface::new(interface_send);
 
         let recev_fut = interface_recv.clone().into_recv_async();
-        let handler_fut = unsafe { handler.handle_raw_event(def, args, interface) };
+        let shared_handler = Arc::new(handler);
+        let handler_fut = unsafe { shared_handler.clone().handle_raw_event(def, args, interface) };
 
         let frame = Frame::ReadyToPoll {
             interface_recv,
             recev_fut,
+            handler: shared_handler,
             handler_fut: Box::pin(async move { handler_fut.await }),
         };
 
         Ok(frame)
     }
 
-    async fn raw_fire(&mut self, def: TypeId, args: DynVar) -> Result<DynVar, FireEventError> {
+    async fn raw_fire(&mut self, def: TypeId, args: DynVar, mut trace: CallTrace) -> (Option<DynVar>, CallTrace) {
         let mut stack: Vec<Frame> = vec![];
 
-        stack.push(self.gen_frame_for(def, args)?);
+        stack.push(match self.gen_frame_for(def, args) {
+            Ok(initial_frame) => initial_frame,
+            Err(initial_frame_error) => {
+                trace.root.resolution = Some(Resolution::BusError(initial_frame_error));
+                return (None, trace)
+            }
+        });
 
         'main: loop {
             match stack.pop().unwrap() {
                 Frame::ReadyToPoll {
                     interface_recv,
                     recev_fut,
+                    handler,
                     handler_fut,
                 } => {
                     let recv_and_handler_fut = OneOf::new(recev_fut, handler_fut);
@@ -131,43 +144,54 @@ impl DABus {
                                     def,
                                     args,
                                     responder,
+                                    trace_data,
                                 } => match self.gen_frame_for(def, args) {
                                     Ok(next_frame) => {
+                                        trace.root.inner.push(trace_data);
                                         stack.push(Frame::AwaitingNestedCall {
                                             interface_recv,
+                                            handler,
                                             handler_fut,
                                             responder,
                                         });
                                         stack.push(next_frame);
                                     }
                                     Err(e) => {
+
                                         responder.send(Err(e)).unwrap();
                                         let recev_fut = interface_recv.clone().into_recv_async();
                                         stack.push(Frame::ReadyToPoll {
                                             interface_recv,
                                             recev_fut,
+                                            handler,
                                             handler_fut,
                                         });
                                     }
-                                },
+                                }
+                                BusInterfaceEvent::FwdError { error } => {
+                                    todo!()
+                                }
                             }
                         }
-                        OneOfResult::F1(_, (handler, handler_return)) => {
+                        OneOfResult::F1(_, handler_return) => {
+                            self.registered_stops.push(Arc::try_unwrap(handler).unwrap());
                             if stack.is_empty() {
-                                self.registered_stops.push(handler);
-                                break 'main Ok(handler_return);
+                                trace.root.resolution = Some(Resolution::Success);
+                                trace.root.return_v = Some(format!("{:#?}", handler_return.as_dbg()));
+                                break 'main (Some(handler_return), trace);
                             } else {
                                 if let Frame::AwaitingNestedCall {
                                     interface_recv,
+                                    handler: returned_handler,
                                     handler_fut,
                                     responder,
                                 } = stack.pop().unwrap()
                                 {
-                                    self.registered_stops.push(handler);
                                     responder.send(Ok(handler_return)).unwrap();
                                     let recev_fut = interface_recv.clone().into_recv_async();
                                     stack.push(Frame::ReadyToPoll {
                                         interface_recv,
+                                        handler: returned_handler,
                                         recev_fut,
                                         handler_fut,
                                     });
@@ -193,12 +217,22 @@ impl DABus {
         &mut self,
         def: &'static EventDef<Tag, At, Rt>,
         args: At,
-    ) -> Result<Rt, FireEventError> {
+    ) -> Result<Rt, CallTrace> {
         info!("Firing initial event: {:?}", def.name);
+        let trace = CallTrace {
+            root: CallEvent::from_event_def(def, &args),
+        };
         let _ = def;
         let def = TypeId::of::<Tag>();
         let args = DynVar::new(args);
-        Ok(unsafe { self.raw_fire(def, args).await?.try_to_unchecked::<Rt>() })
+        match self.raw_fire(def, args, trace).await {
+            (Some(return_v), _trace) => {
+                Ok(return_v.try_to().unwrap())
+            }
+            (None, trace) => {
+                Err(trace)
+            }
+        }
     }
 }
 

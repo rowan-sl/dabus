@@ -2,5 +2,6 @@
 [workspace]
 members = [
     "dabus",
+    "dabus-test",
 ]
 resolver = "2"

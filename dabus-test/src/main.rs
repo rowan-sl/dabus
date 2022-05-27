@@ -17,8 +17,6 @@ async fn asmain() -> Result<()> {
     let mut bus = DABus::new();
     bus.register(Printer::new());
     bus.register(HelloHandler);
-    bus.fire(PRINT_EVENT, "Hello, World!".to_string()).await?;
-    bus.fire(FLUSH_EVENT, ()).await?;
     bus.fire(HELLO_EVENT, ()).await?;
     Ok(())
 }

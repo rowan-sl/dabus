@@ -1,4 +1,6 @@
-use std::{any::TypeId, fmt::Debug};
+use std::{any::TypeId, fmt::Debug, sync::Arc};
+
+use futures::lock::Mutex;
 
 use crate::{
     core::dyn_var::DynVar, event::EventRegister, interface::BusInterface, util::{GeneralRequirements, dyn_debug::DynDebug},
@@ -141,40 +143,43 @@ pub(crate) trait BusStopReq: DynBusStopContainer + GeneralRequirements {}
 impl<T: DynBusStopContainer + GeneralRequirements> BusStopReq for T {}
 
 pub(crate) struct BusStopContainer {
-    pub(crate) inner: Box<dyn BusStopReq + Send + Sync + 'static>,
+    pub(crate) inner: Mutex<Box<dyn BusStopReq + Send + Sync + 'static>>,
 }
 
 impl BusStopContainer {
-    pub const fn new(inner: Box<dyn BusStopReq + Send + Sync + 'static>) -> Self {
-        Self { inner }
+    pub fn new(inner: Box<dyn BusStopReq + Send + Sync + 'static>) -> Self {
+        Self { inner: Mutex::new(inner) }
     }
 
     pub async unsafe fn handle_raw_event(
-        mut self,
+        self: Arc<Self>,
         event_tag_id: TypeId,
         event: DynVar, /* must be the hidden event type */
         interface: BusInterface,
-    ) -> (Self, DynVar) {
+    ) -> DynVar {
         let ret = self
             .inner
+            .try_lock()
+            .unwrap()
             .handle_raw_event(event_tag_id, event, interface)
             .await;
-        (self, ret)
+        ret
     }
 
     pub fn relevant(&mut self, event_tag_id: TypeId) -> bool {
-        self.inner.relevant(event_tag_id)
+        self.inner.try_lock().unwrap().relevant(event_tag_id)
     }
 
-    pub fn debug(&self) -> &dyn Debug {
-        self.inner.debug()
+    pub fn debug(&mut self) -> &dyn Debug {
+        let i = self.inner.get_mut();
+        (**i).as_dbg()
     }
 }
 
 impl Debug for BusStopContainer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BusStopContainer")
-            .field("inner", self.debug())
+            .field("inner", self.inner.try_lock().unwrap().as_dbg())
             .finish()
     }
 }
