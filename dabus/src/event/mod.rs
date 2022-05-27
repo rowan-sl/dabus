@@ -47,7 +47,7 @@ impl<Tag: unique_type::Unique, At, Rt> EventDef<Tag, At, Rt> {
 }
 
 /// abstraction for registering handlers
-pub struct EventRegister<S> {
+pub struct EventRegister<S: ?Sized> {
     pub(crate) handlers: Vec<(
         TypeId,
         Box<dyn HandlerCallableErased + Send + Sync + 'static>,

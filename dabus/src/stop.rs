@@ -5,9 +5,7 @@ use crate::{
 };
 
 pub trait BusStop {
-    fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self>
-    where
-        Self: Sized;
+    fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self>;
 }
 
 mod seal {
@@ -15,7 +13,7 @@ mod seal {
 }
 
 #[async_trait]
-pub trait BusStopMech: Sized + seal::Sealed {
+pub(crate) trait BusStopMech: Sized + seal::Sealed {
     async unsafe fn handle_raw_event(
         self,
         event_tag_id: TypeId,
@@ -70,7 +68,7 @@ where
 }
 
 // this probably can be combined with BusStopMech's behavior to simplify things
-pub struct BusStopMechContainer<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> {
+pub(crate) struct BusStopMechContainer<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> {
     inner: Option<B>,
 }
 
@@ -102,8 +100,11 @@ impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> BusStopMechCo
     }
 }
 
+impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> seal::Sealed for BusStopMechContainer<B> {}
+
 #[async_trait]
-pub trait DynBusStopContainer {
+#[doc(hidden)]
+pub(crate) trait DynBusStopContainer: seal::Sealed {
     async unsafe fn handle_raw_event(
         &mut self,
         event_tag_id: TypeId,
@@ -136,10 +137,10 @@ impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> DynBusStopCon
     }
 }
 
-pub trait BusStopReq: DynBusStopContainer + GeneralRequirements {}
+pub(crate) trait BusStopReq: DynBusStopContainer + GeneralRequirements {}
 impl<T: DynBusStopContainer + GeneralRequirements> BusStopReq for T {}
 
-pub struct BusStopContainer {
+pub(crate) struct BusStopContainer {
     pub(crate) inner: Box<dyn BusStopReq + Send + Sync + 'static>,
 }
 
@@ -167,5 +168,13 @@ impl BusStopContainer {
 
     pub fn debug(&self) -> &dyn Debug {
         self.inner.debug()
+    }
+}
+
+impl Debug for BusStopContainer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BusStopContainer")
+            .field("inner", self.debug())
+            .finish()
     }
 }

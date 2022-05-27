@@ -32,6 +32,7 @@ enum Frame {
     },
 }
 
+#[derive(Debug)]
 pub struct DABus {
     registered_stops: Vec<BusStopContainer>,
 }
@@ -198,5 +199,11 @@ impl DABus {
         let def = TypeId::of::<Tag>();
         let args = DynVar::new(args);
         Ok(unsafe { self.raw_fire(def, args).await?.try_to_unchecked::<Rt>() })
+    }
+}
+
+impl Default for DABus {
+    fn default() -> Self {
+        Self::new()
     }
 }

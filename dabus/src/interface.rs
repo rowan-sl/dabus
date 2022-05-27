@@ -6,7 +6,7 @@ use crate::{
     bus::error::FireEventError, core::dyn_var::DynVar, util::dyn_debug::DynDebug, EventDef,
 };
 
-pub enum BusInterfaceEvent {
+pub(crate) enum BusInterfaceEvent {
     Fire {
         def: TypeId,
         args: DynVar,

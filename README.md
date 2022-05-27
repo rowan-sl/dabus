@@ -81,6 +81,19 @@ async fn main() {
 }
 ```
 
+## Important Note
+
+This crate ***requires*** nightly!
+
+this is why:
+
+```rust
+#![feature(downcast_unchecked)]
+#![feature(drain_filter)]
+#![allow(incomplete_features)]
+#![feature(specialization)]
+```
+
 ## TODO's
 
 - [ ] docs
@@ -92,3 +105,4 @@ async fn main() {
 - [ ] more complex event matching (allow handlers to consume an event, after looking at the arguments?)
 - [x] nested handler calls
 - [ ] error forwarding
+- [ ] take a look at [rust api guidelines](https://rust-lang.github.io/api-guidelines/about.html)
