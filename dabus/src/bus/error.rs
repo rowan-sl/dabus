@@ -30,6 +30,7 @@ pub struct CallTrace {
 pub enum Resolution {
     Success,
     BusError(FireEventError),
+    NestedCallError,
 }
 
 #[derive(Debug, Clone)]

@@ -177,18 +177,37 @@ impl DABus {
                                         });
                                     }
                                 }
-                                BusInterfaceEvent::FwdError { error, blocker } => {
+                                BusInterfaceEvent::FwdError { mut error, blocker } => {
                                     drop(handler_fut);
                                     drop(blocker);
                                     let h = Arc::try_unwrap(handler).unwrap();
                                     self.registered_stops.push(h);
-                                    error!("forwarding errors is not implemented");
+                                    local_trace_data.resolution = Some(Resolution::NestedCallError);
+                                    local_trace_data.inner.push(error.root.take().unwrap());
                                     if stack.is_empty() {
-                                        //TODO figure out tracing
+                                        trace.root = Some(local_trace_data);
                                         break 'main (None, trace);
                                     } else {
-                                        todo!()
-                                        //TODO unwinding??
+                                        if let Frame::AwaitingNestedCall {
+                                            interface_recv,
+                                            handler: nested_handler,
+                                            handler_fut: nested_handler_fut,
+                                            responder,
+                                            local_trace_data: caller_handler_trace_data,
+                                        } = stack.pop().unwrap() {
+                                            responder.send(Err(CallTrace { root: Some(local_trace_data) })).unwrap();
+                                            let recev_fut = interface_recv.clone().into_recv_async();
+                                            stack.push(Frame::ReadyToPoll {
+                                                interface_recv: interface_recv,
+                                                handler: nested_handler,
+                                                recev_fut,
+                                                handler_fut: nested_handler_fut,
+                                                local_trace_data: caller_handler_trace_data,
+                                            });
+                                        } else {
+                                            unreachable!()
+                                        }
+                                        continue 'main;
                                     }
                                 }
                             }

@@ -9,7 +9,7 @@ use std::io::Write;
 
 use anyhow::Result;
 
-use dabus::{BusInterface, BusStop, DABus, EventRegister, BusErrorUtil as _};
+use dabus::{BusErrorUtil as _, BusInterface, BusStop, DABus, EventRegister};
 
 // #[tokio::main]
 async fn asmain() -> Result<()> {
@@ -17,7 +17,7 @@ async fn asmain() -> Result<()> {
         .filter_level(log::LevelFilter::Trace)
         .init();
     let mut bus = DABus::new();
-    // bus.register(STDOut);
+    bus.register(STDOut);
     bus.register(Printer::new());
     bus.register(HelloHandler);
     info!("{:#?}", bus.fire(HELLO_EVENT, ()).await?);
@@ -100,7 +100,11 @@ impl Printer {
 
     async fn flush(&mut self, _: (), mut i: BusInterface) {
         self.buffer.push('\n');
-        i.fire(WRITE_EVENT, self.buffer.clone()).await.unwrap_or_fwd(&i).await.unwrap();
+        i.fire(WRITE_EVENT, self.buffer.clone())
+            .await
+            .unwrap_or_fwd(&i)
+            .await
+            .unwrap();
         self.buffer.clear();
     }
 }

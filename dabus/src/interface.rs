@@ -79,7 +79,7 @@ impl BusInterface {
         self.channel
             .send(BusInterfaceEvent::FwdError { error, blocker })
             .unwrap();
-        blocks.recv_async().await;
+        blocks.recv_async().await.unwrap();
         unreachable!("nani")
     }
 }
