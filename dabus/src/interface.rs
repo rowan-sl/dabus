@@ -14,7 +14,7 @@ pub(crate) enum BusInterfaceEvent {
         responder: Sender<Result<DynVar, CallTrace>>,
         trace_data: CallEvent,
     },
-    FwdError {
+    FwdBusError {
         error: CallTrace,
         blocker: Sender<()>,
     },
@@ -77,10 +77,10 @@ impl BusInterface {
     ) -> ! {
         let (blocker, blocks) = flume::bounded::<()>(1);
         self.channel
-            .send(BusInterfaceEvent::FwdError { error, blocker })
+            .send(BusInterfaceEvent::FwdBusError { error, blocker })
             .unwrap();
         blocks.recv_async().await.unwrap();
-        unreachable!("nani")
+        unreachable!()
     }
 }
 

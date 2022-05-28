@@ -35,6 +35,25 @@ impl CallTrace {
         debug_assert!(self.root.is_none());
         self.root = Some(root);
     }
+
+    /// finds the first failing event in a chain of nested call errors
+    pub fn source(&mut self) -> Option<CallEvent> {
+        let mut current_root = self.root.clone()?;
+        if let Resolution::Success = current_root.resolution.clone()? {
+            // no error
+            None?
+        }
+        loop {
+            let last_inner = current_root.inner.last()?.to_owned();
+            match last_inner.resolution {
+                None => None?,// invalid trace
+                Some(Resolution::Success) => None?,//no error
+                Some(Resolution::NestedCallError) => current_root = last_inner, // more to go
+                Some(Resolution::BusError(..)) => break, // we found it!
+            }
+        }
+        Some(current_root)
+    }
 }
 
 
@@ -97,7 +116,7 @@ impl CallEvent {
 
 impl CallEvent {
     pub fn resolve(&mut self, resolution: Resolution) {
-        debug_assert!(self.resolution.is_none());
+        debug_assert!(self.resolution.is_none(), "attempted to set resolution to {:?}, but resolution was already set to: {:?}", resolution, self.resolution);
         self.resolution = Some(resolution);
     }
 

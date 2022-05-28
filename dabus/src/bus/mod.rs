@@ -177,7 +177,7 @@ impl DABus {
                                         });
                                     }
                                 }
-                                BusInterfaceEvent::FwdError { mut error, blocker } => {
+                                BusInterfaceEvent::FwdBusError { mut error, blocker } => {
                                     drop(handler_fut);
                                     drop(blocker);
                                     let h = Arc::try_unwrap(handler).unwrap();
