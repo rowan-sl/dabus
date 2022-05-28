@@ -13,6 +13,7 @@ pub trait PossiblyClone {
     ///
     /// # Panics
     /// if `Self` is not [`Clone`]
+    #[must_use]
     fn try_clone(&self) -> Self;
 }
 

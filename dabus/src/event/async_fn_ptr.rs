@@ -35,11 +35,11 @@ where
     _t: PhantomData<&'static (H, At, Rt)>,
 }
 
-impl<H: 'static + Send, At: 'static + Send, Rt: 'static, P: 'static> HandlerFn<H, At, Rt, P>
+impl<H: 'static + Send, At: 'static + Send, Rt: 'static, P> HandlerFn<H, At, Rt, P>
 where
-    P: for<'a> AsyncFnPtr<'a, H, At, Rt> + Send + Copy,
+    P: for<'a> AsyncFnPtr<'a, H, At, Rt> + Send + Copy + 'static,
 {
-    pub fn new(f: P) -> Self {
+    pub const fn new(f: P) -> Self {
         Self { f, _t: PhantomData }
     }
 

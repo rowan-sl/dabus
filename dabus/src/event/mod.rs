@@ -17,6 +17,7 @@ use self::async_fn_ptr::{AsyncFnPtr, HandlerCallableErased, HandlerFn};
 ///
 /// static TEST_EVENT: &'static EventDef<unique_type::new!(), ()> = unsafe { &EventDef::new() };
 /// ```
+#[allow(clippy::module_name_repetitions)]
 pub struct EventDef<
     Tag: unique_type::Unique,
     At,
@@ -34,8 +35,9 @@ unsafe impl<Tag: unique_type::Unique, At, Rt> Send for EventDef<Tag, At, Rt> {}
 
 impl<Tag: unique_type::Unique, At, Rt> EventDef<Tag, At, Rt> {
     /// # Saftey
-    /// you MUST use unique_type::new!() for the type parameter Tag,
+    /// you MUST use `unique_type::new!()` for the type parameter Tag,
     /// otherwise **THINGS WILL BREAK, INCLUDING YOUR MIND AFTER HOURS OF DEBUGGING**
+    #[must_use]
     pub const unsafe fn new(name: &'static str) -> Self {
         Self {
             name,
@@ -47,6 +49,7 @@ impl<Tag: unique_type::Unique, At, Rt> EventDef<Tag, At, Rt> {
 }
 
 /// abstraction for registering handlers
+#[allow(clippy::module_name_repetitions)]
 pub struct EventRegister<S: ?Sized> {
     pub(crate) handlers: Vec<(
         TypeId,
@@ -65,6 +68,7 @@ impl<S: Sync + Send + 'static> EventRegister<S> {
     }
 
     // do not the generic async function pointers
+    #[must_use]
     pub fn handler<Tag, At, Rt, P>(mut self, def: &'static EventDef<Tag, At, Rt>, func: P) -> Self
     where
         Tag: unique_type::Unique + Send + Sync + 'static,

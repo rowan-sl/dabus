@@ -6,6 +6,7 @@ use crate::{
     core::dyn_var::DynVar, event::EventRegister, interface::BusInterface, util::{GeneralRequirements, dyn_debug::DynDebug},
 };
 
+#[allow(clippy::module_name_repetitions)]
 pub trait BusStop {
     fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self>;
 }
@@ -15,7 +16,7 @@ mod seal {
 }
 
 #[async_trait]
-pub(crate) trait BusStopMech: Sized + seal::Sealed {
+pub trait BusStopMech: Sized + seal::Sealed {
     async unsafe fn handle_raw_event(
         self,
         event_tag_id: TypeId,
@@ -70,7 +71,7 @@ where
 }
 
 // this probably can be combined with BusStopMech's behavior to simplify things
-pub(crate) struct BusStopMechContainer<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> {
+pub struct BusStopMechContainer<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> {
     inner: Option<B>,
 }
 
@@ -106,7 +107,7 @@ impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> seal::Sealed 
 
 #[async_trait]
 #[doc(hidden)]
-pub(crate) trait DynBusStopContainer: seal::Sealed {
+pub trait DynBusStopContainer: seal::Sealed {
     async unsafe fn handle_raw_event(
         &mut self,
         event_tag_id: TypeId,
@@ -127,11 +128,11 @@ impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> DynBusStopCon
         event: DynVar, /* must be the hidden event type */
         interface: BusInterface,
     ) -> DynVar {
-        BusStopMechContainer::handle_raw_event(self, event_tag_id, event, interface).await
+        Self::handle_raw_event(self, event_tag_id, event, interface).await
     }
 
     fn relevant(&mut self, event_tag_id: TypeId) -> bool {
-        BusStopMechContainer::relevant(self, event_tag_id)
+        Self::relevant(self, event_tag_id)
     }
 
     fn debug(&self) -> &dyn Debug {
@@ -139,11 +140,11 @@ impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> DynBusStopCon
     }
 }
 
-pub(crate) trait BusStopReq: DynBusStopContainer + GeneralRequirements {}
+pub trait BusStopReq: DynBusStopContainer + GeneralRequirements {}
 impl<T: DynBusStopContainer + GeneralRequirements> BusStopReq for T {}
 
-pub(crate) struct BusStopContainer {
-    pub(crate) inner: Mutex<Box<dyn BusStopReq + Send + Sync + 'static>>,
+pub struct BusStopContainer {
+    pub inner: Mutex<Box<dyn BusStopReq + Send + Sync + 'static>>,
 }
 
 impl BusStopContainer {

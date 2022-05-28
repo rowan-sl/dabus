@@ -7,7 +7,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub(crate) enum BusInterfaceEvent {
+pub enum BusInterfaceEvent {
     Fire {
         def: TypeId,
         args: DynVar,
@@ -21,6 +21,7 @@ pub(crate) enum BusInterfaceEvent {
 }
 
 #[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct BusInterface {
     pub(crate) channel: Sender<BusInterfaceEvent>,
 }
@@ -67,12 +68,11 @@ impl BusInterface {
 
     /// takes a error (from a nested call, presumablely) and forwards it to the caller of the current event (via the runtime and a deal with the devil)
     ///
-    /// this is a easy way to handle errors, as it will forward the error, and can produce nice backtraces (soonTM)
+    /// this is a easy way to handle errors, as it will forward the error, and can produce nice backtraces
     ///
-    /// this returns ! because as soon as this is polled by the runtime (i think) the future of the bus event will be dropped.
-    /// (hopefully that wont do anything bad?)
+    /// this function (from the perspective of the handler) will never return, but from the persepective of the program it will, so keep that in mind.
     pub async fn fwd_bus_err(
-        &self, /* not needed, but just to enforce the this-is-the-last-thing-you-do theme */
+        &self,
         error: CallTrace,
     ) -> ! {
         let (blocker, blocks) = flume::bounded::<()>(1);

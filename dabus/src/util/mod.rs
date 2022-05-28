@@ -3,6 +3,7 @@
 //! - getting the actual type name of dyn Any
 //! - casting dyn T -> dyn Any (not as cursed)
 
+#[allow(clippy::module_name_repetitions)]
 pub mod async_util;
 pub mod dyn_debug;
 pub mod dyn_downcast;

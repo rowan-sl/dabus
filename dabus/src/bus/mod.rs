@@ -39,11 +39,13 @@ enum Frame {
 }
 
 #[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct DABus {
     registered_stops: Vec<BusStopContainer>,
 }
 
 impl DABus {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             registered_stops: vec![],
@@ -70,7 +72,7 @@ impl DABus {
         let stop = self
             .registered_stops
             .drain_filter(|stop| (*stop.inner.try_lock().unwrap()).as_any().type_id() == TypeId::of::<T>())
-            .nth(0)
+            .next()
             .map(|item| *item.inner.into_inner().to_any().downcast().unwrap());
         info!("Deregistering stop {:?}", stop);
         stop
@@ -122,6 +124,7 @@ impl DABus {
         Ok(frame)
     }
 
+    #[allow(clippy::too_many_lines)]// deal
     async fn raw_fire(&mut self, def: TypeId, args: DynVar, mut trace: CallTrace) -> (Option<DynVar>, CallTrace) {
         let mut stack: Vec<Frame> = vec![];
 
@@ -187,27 +190,24 @@ impl DABus {
                                     if stack.is_empty() {
                                         trace.set_root(local_trace_data);
                                         break 'main (None, trace);
-                                    } else {
-                                        if let Frame::AwaitingNestedCall {
+                                    } else if let Frame::AwaitingNestedCall {
+                                        interface_recv,
+                                        handler: nested_handler,
+                                        handler_fut: nested_handler_fut,
+                                        responder,
+                                        local_trace_data: caller_handler_trace_data,
+                                    } = stack.pop().unwrap() {
+                                        responder.send(Err(CallTrace { root: Some(local_trace_data) })).unwrap();
+                                        let recev_fut = interface_recv.clone().into_recv_async();
+                                        stack.push(Frame::ReadyToPoll {
                                             interface_recv,
                                             handler: nested_handler,
+                                            recev_fut,
                                             handler_fut: nested_handler_fut,
-                                            responder,
                                             local_trace_data: caller_handler_trace_data,
-                                        } = stack.pop().unwrap() {
-                                            responder.send(Err(CallTrace { root: Some(local_trace_data) })).unwrap();
-                                            let recev_fut = interface_recv.clone().into_recv_async();
-                                            stack.push(Frame::ReadyToPoll {
-                                                interface_recv: interface_recv,
-                                                handler: nested_handler,
-                                                recev_fut,
-                                                handler_fut: nested_handler_fut,
-                                                local_trace_data: caller_handler_trace_data,
-                                            });
-                                        } else {
-                                            unreachable!()
-                                        }
-                                        continue 'main;
+                                        });
+                                    } else {
+                                        unreachable!()
                                     }
                                 }
                             }
@@ -220,31 +220,28 @@ impl DABus {
                                 local_trace_data.set_return(&handler_return);
                                 trace.set_root(local_trace_data);
                                 break 'main (Some(handler_return), trace);
-                            } else {
-                                if let Frame::AwaitingNestedCall {
+                            } else if let Frame::AwaitingNestedCall {
+                                interface_recv,
+                                handler: returned_handler,
+                                handler_fut,
+                                responder,
+                                local_trace_data: mut caller_handler_trace_data,
+                            } = stack.pop().unwrap()
+                            {
+                                local_trace_data.resolve(Resolution::Success);
+                                local_trace_data.set_return(&handler_return);
+                                caller_handler_trace_data.inner.push(local_trace_data);
+                                responder.send(Ok(handler_return)).unwrap();
+                                let recev_fut = interface_recv.clone().into_recv_async();
+                                stack.push(Frame::ReadyToPoll {
                                     interface_recv,
                                     handler: returned_handler,
+                                    recev_fut,
                                     handler_fut,
-                                    responder,
-                                    local_trace_data: mut caller_handler_trace_data,
-                                } = stack.pop().unwrap()
-                                {
-                                    local_trace_data.resolve(Resolution::Success);
-                                    local_trace_data.set_return(&handler_return);
-                                    caller_handler_trace_data.inner.push(local_trace_data);
-                                    responder.send(Ok(handler_return)).unwrap();
-                                    let recev_fut = interface_recv.clone().into_recv_async();
-                                    stack.push(Frame::ReadyToPoll {
-                                        interface_recv,
-                                        handler: returned_handler,
-                                        recev_fut,
-                                        handler_fut,
-                                        local_trace_data: caller_handler_trace_data,
-                                    });
-                                    continue 'main;
-                                } else {
-                                    unreachable!()
-                                }
+                                    local_trace_data: caller_handler_trace_data,
+                                });
+                            } else {
+                                unreachable!()
                             }
                         }
                         OneOfResult::All(..) => unreachable!(),

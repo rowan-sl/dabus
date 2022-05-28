@@ -98,7 +98,8 @@ pub struct Printer {
 }
 
 impl Printer {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             buffer: String::new(),
         }

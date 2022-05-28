@@ -18,7 +18,7 @@ pub struct OneOf<F0: Future, F1: Future> {
 
 impl<F0: Future, F1: Future> OneOf<F0, F1> {
     /// Crates a new [`OneOf`] that polls the supplied future
-    pub fn new(f0: F0, f1: F1) -> Self {
+    pub const fn new(f0: F0, f1: F1) -> Self {
         Self {
             fut0: Some(f0),
             fut1: Some(f1),

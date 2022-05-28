@@ -1,8 +1,9 @@
-use std::any::type_name;
+use std::{any::type_name, fmt::Write};
 
 use crate::{EventDef, util::dyn_debug::DynDebug, core::dyn_var::DynVar};
 
 #[derive(Clone, Debug, thiserror::Error)]
+#[allow(clippy::module_name_repetitions)]
 #[error("Failed to execute event!\n{err:?}")]
 pub struct FireEventError {
     err: BaseFireEventError,
@@ -15,6 +16,7 @@ impl From<BaseFireEventError> for FireEventError {
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
+#[allow(clippy::module_name_repetitions)]
 pub enum BaseFireEventError {
     #[error("No handler matches the event!")]
     NoHandler,
@@ -27,6 +29,7 @@ pub struct CallTrace {
 }
 
 impl CallTrace {
+    #[must_use]
     pub fn take_root(&mut self) -> Option<CallEvent> {
         self.root.take()
     }
@@ -37,17 +40,17 @@ impl CallTrace {
     }
 
     /// finds the first failing event in a chain of nested call errors
+    #[must_use]
     pub fn source(&self) -> Option<CallEvent> {
         let mut current_root = self.root.clone()?;
         if let Resolution::Success = current_root.resolution.clone()? {
             // no error
-            None?
+            None?;
         }
         loop {
-            let last_inner = current_root.inner.last()?.to_owned();
+            let last_inner = current_root.inner.last()?.clone();
             match last_inner.resolution {
-                None => None?,// invalid trace
-                Some(Resolution::Success) => None?,//no error
+                None | Some(Resolution::Success) => None?,// invalid trace | no error
                 Some(Resolution::NestedCallError) => current_root = last_inner, // more to go
                 Some(Resolution::BusError(..)) => {
                     current_root = last_inner;
@@ -58,6 +61,7 @@ impl CallTrace {
         Some(current_root)
     }
 
+    #[must_use]
     pub fn display(&self) -> String {
         self.root.as_ref().unwrap().display()
     }
@@ -84,6 +88,7 @@ pub struct CallEvent {
 
 #[cfg(not(feature = "backtrace_track_values"))]
 impl CallEvent {
+    #[must_use]
     pub fn from_event_def<Tag: unique_type::Unique, At: DynDebug + 'static, Rt: DynDebug + 'static>(def: &'static EventDef<Tag, At, Rt>, _: &At) -> Self {
         Self {
             handler_name: def.name,
@@ -97,10 +102,12 @@ impl CallEvent {
     }
 
     #[inline(always)]
+    #[allow(clippy::unused_self)]
     pub fn set_return(&mut self, _: &DynVar) {}
 
+    #[must_use]
     pub fn display(&self) -> String {
-        const INDENT: &'static str = "  ";
+        const INDENT: &str = "  ";
         let mut initial = format!(
             "call: handler {handler_name} (&mut self, args: {args_t}) -> {ret_t}",
             handler_name = self.handler_name,
@@ -112,15 +119,14 @@ impl CallEvent {
         if nested_calls {
             initial.push('\n');
         } else {
-            initial.push_str(&format!(" ::: {:?}", self.resolution.as_ref().unwrap()));
+            write!(initial, " ::: {:?}", self.resolution.as_ref().unwrap()).unwrap();
         }
         for n in nested {
             let indented_n = n.split('\n').map(|line| INDENT.to_string() + line + "\n").collect::<String>();
             initial.push_str(&indented_n);
         }
-        // debug_assert_eq!(initial.pop(), Some('\n'));
         if nested_calls {
-            initial.push_str(&format!("ret: {:?}", self.resolution.as_ref().unwrap()));
+            write!(initial, "ret: {:?}", self.resolution.as_ref().unwrap()).unwrap();
         }
         initial
     }
