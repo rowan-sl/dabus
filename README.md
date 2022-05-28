@@ -105,7 +105,7 @@ this is why:
 - [ ] docs
 - [ ] tests
 - [x] backtraces (do LATER, do logging NOW)
-- [ ] format backtraces
+- [x] format backtraces
 - [ ] a way of turning off backtraces? (performance)
 - [ ] examples **IMPORTANT**
 - [x] proper error handling

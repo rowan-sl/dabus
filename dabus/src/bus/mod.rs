@@ -215,9 +215,9 @@ impl DABus {
                         OneOfResult::F1(_, handler_return) => {
                             info!("Handler returned");
                             self.registered_stops.push(Arc::try_unwrap(handler).unwrap());
-                            local_trace_data.resolve(Resolution::Success);
-                            local_trace_data.set_return(&handler_return);
                             if stack.is_empty() {
+                                local_trace_data.resolve(Resolution::Success);
+                                local_trace_data.set_return(&handler_return);
                                 trace.set_root(local_trace_data);
                                 break 'main (Some(handler_return), trace);
                             } else {
@@ -229,8 +229,8 @@ impl DABus {
                                     local_trace_data: mut caller_handler_trace_data,
                                 } = stack.pop().unwrap()
                                 {
-                                    caller_handler_trace_data.resolve(Resolution::Success);
-                                    caller_handler_trace_data.set_return(&handler_return);
+                                    local_trace_data.resolve(Resolution::Success);
+                                    local_trace_data.set_return(&handler_return);
                                     caller_handler_trace_data.inner.push(local_trace_data);
                                     responder.send(Ok(handler_return)).unwrap();
                                     let recev_fut = interface_recv.clone().into_recv_async();

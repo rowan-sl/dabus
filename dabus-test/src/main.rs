@@ -11,7 +11,6 @@ use anyhow::Result;
 
 use dabus::{BusErrorUtil as _, BusInterface, BusStop, DABus, EventRegister};
 
-// #[tokio::main]
 async fn asmain() -> Result<()> {
     pretty_env_logger::formatted_builder()
         .filter_level(log::LevelFilter::Trace)
@@ -20,7 +19,18 @@ async fn asmain() -> Result<()> {
     bus.register(STDOut);
     bus.register(Printer::new());
     bus.register(HelloHandler);
-    info!("{:#?}", bus.fire(HELLO_EVENT, ()).await?);
+    match bus.fire(HELLO_EVENT, ()).await {
+        Ok((_, trace)) => {
+            info!("raw:\n{:#?}", trace);
+            info!("formatted:\n{}", trace.display());
+        }
+        Err(trace) => {
+            info!("error");
+            info!("raw:\n{:#?}", trace);
+            info!("formatted:\n{}", trace.display());
+            info!("source:\n{:#?}", trace.source().unwrap().display());
+        }
+    }
     Ok(())
 }
 

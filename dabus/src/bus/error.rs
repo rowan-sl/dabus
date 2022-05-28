@@ -37,7 +37,7 @@ impl CallTrace {
     }
 
     /// finds the first failing event in a chain of nested call errors
-    pub fn source(&mut self) -> Option<CallEvent> {
+    pub fn source(&self) -> Option<CallEvent> {
         let mut current_root = self.root.clone()?;
         if let Resolution::Success = current_root.resolution.clone()? {
             // no error
@@ -49,10 +49,17 @@ impl CallTrace {
                 None => None?,// invalid trace
                 Some(Resolution::Success) => None?,//no error
                 Some(Resolution::NestedCallError) => current_root = last_inner, // more to go
-                Some(Resolution::BusError(..)) => break, // we found it!
+                Some(Resolution::BusError(..)) => {
+                    current_root = last_inner;
+                    break // we found it!
+                }
             }
         }
         Some(current_root)
+    }
+
+    pub fn display(&self) -> String {
+        self.root.as_ref().unwrap().display()
     }
 }
 
@@ -91,6 +98,32 @@ impl CallEvent {
 
     #[inline(always)]
     pub fn set_return(&mut self, _: &DynVar) {}
+
+    pub fn display(&self) -> String {
+        const INDENT: &'static str = "  ";
+        let mut initial = format!(
+            "call: handler {handler_name} (&mut self, args: {args_t}) -> {ret_t}",
+            handler_name = self.handler_name,
+            args_t = self.handler_args_t,
+            ret_t = self.return_t,
+        );
+        let nested: Vec<String> = self.inner.iter().map(|event| {event.display()}).collect();
+        let nested_calls: bool = !nested.is_empty();
+        if nested_calls {
+            initial.push('\n');
+        } else {
+            initial.push_str(&format!(" ::: {:?}", self.resolution.as_ref().unwrap()));
+        }
+        for n in nested {
+            let indented_n = n.split('\n').map(|line| INDENT.to_string() + line + "\n").collect::<String>();
+            initial.push_str(&indented_n);
+        }
+        // debug_assert_eq!(initial.pop(), Some('\n'));
+        if nested_calls {
+            initial.push_str(&format!("ret: {:?}", self.resolution.as_ref().unwrap()));
+        }
+        initial
+    }
 }
 
 #[cfg(feature = "backtrace_track_values")]
