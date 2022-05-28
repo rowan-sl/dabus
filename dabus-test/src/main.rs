@@ -5,9 +5,11 @@ extern crate log;
 #[macro_use]
 extern crate dabus;
 
+use std::io::Write;
+
 use anyhow::Result;
 
-use dabus::{BusInterface, BusStop, DABus, EventRegister};
+use dabus::{BusInterface, BusStop, DABus, EventRegister, BusErrorUtil as _};
 
 // #[tokio::main]
 async fn asmain() -> Result<()> {
@@ -15,9 +17,10 @@ async fn asmain() -> Result<()> {
         .filter_level(log::LevelFilter::Trace)
         .init();
     let mut bus = DABus::new();
+    // bus.register(STDOut);
     bus.register(Printer::new());
     bus.register(HelloHandler);
-    bus.fire(HELLO_EVENT, ()).await?;
+    info!("{:#?}", bus.fire(HELLO_EVENT, ()).await?);
     Ok(())
 }
 
@@ -38,8 +41,6 @@ fn main() -> Result<()> {
         .block_on(asmain())
 }
 
-event!(PRINT_EVENT, String, ());
-event!(FLUSH_EVENT, (), ());
 event!(HELLO_EVENT, (), ());
 
 #[derive(Debug)]
@@ -49,8 +50,9 @@ impl HelloHandler {
     async fn hello_world(&mut self, _: (), mut i: BusInterface) {
         i.fire(PRINT_EVENT, "Hello, World!".to_string())
             .await
-            .unwrap();
-        i.fire(FLUSH_EVENT, ()).await.unwrap();
+            .unwrap_or_fwd(&i)
+            .await;
+        i.fire(FLUSH_EVENT, ()).await.unwrap_or_fwd(&i).await;
     }
 }
 
@@ -59,6 +61,26 @@ impl BusStop for HelloHandler {
         h.handler(HELLO_EVENT, Self::hello_world)
     }
 }
+
+event!(WRITE_EVENT, String, std::io::Result<()>);
+
+#[derive(Debug)]
+pub struct STDOut;
+
+impl STDOut {
+    pub async fn write(&mut self, data: String, _i: BusInterface) -> std::io::Result<()> {
+        std::io::stdout().lock().write_all(data.as_bytes())
+    }
+}
+
+impl BusStop for STDOut {
+    fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self> {
+        h.handler(WRITE_EVENT, Self::write)
+    }
+}
+
+event!(PRINT_EVENT, String, ());
+event!(FLUSH_EVENT, (), ());
 
 #[derive(Debug)]
 pub struct Printer {
@@ -76,8 +98,9 @@ impl Printer {
         self.buffer = format!("{}\n{}", self.buffer, to_print);
     }
 
-    async fn flush(&mut self, _: (), _i: BusInterface) {
-        println!("{}", self.buffer);
+    async fn flush(&mut self, _: (), mut i: BusInterface) {
+        self.buffer.push('\n');
+        i.fire(WRITE_EVENT, self.buffer.clone()).await.unwrap_or_fwd(&i).await.unwrap();
         self.buffer.clear();
     }
 }

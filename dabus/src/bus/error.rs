@@ -23,7 +23,7 @@ pub enum BaseFireEventError {
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("Error while executing bus event:\n{root:#?}")]
 pub struct CallTrace {
-    pub root: CallEvent,
+    pub root: Option<CallEvent>,
 }
 
 #[derive(Debug, Clone)]

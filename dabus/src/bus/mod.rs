@@ -27,12 +27,14 @@ enum Frame {
         recev_fut: RecvFut<'static, BusInterfaceEvent>,
         handler: Arc<BusStopContainer>,
         handler_fut: BoxFuture<'static, DynVar>,
+        local_trace_data: CallEvent,
     },
     AwaitingNestedCall {
         interface_recv: Receiver<BusInterfaceEvent>,
         handler: Arc<BusStopContainer>,
         handler_fut: BoxFuture<'static, DynVar>,
-        responder: Sender<Result<DynVar, FireEventError>>,
+        responder: Sender<Result<DynVar, CallTrace>>,
+        local_trace_data: CallEvent,
     },
 }
 
@@ -89,7 +91,7 @@ impl DABus {
             .collect()
     }
 
-    fn gen_frame_for(&mut self, def: TypeId, args: DynVar) -> Result<Frame, FireEventError> {
+    fn gen_frame_for(&mut self, def: TypeId, args: DynVar, mut local_trace_data: CallEvent) -> Result<Frame, CallEvent> {
         let mut handlers = self.handlers_for(def);
         assert!(
             handlers.len() < 2,
@@ -97,8 +99,10 @@ impl DABus {
         );
         if handlers.is_empty() {
             error!("no handlers found for {:?}", def);
-            Err(FireEventError::from(BaseFireEventError::NoHandler))?
+            local_trace_data.resolution = Some(Resolution::BusError(FireEventError::from(BaseFireEventError::NoHandler)));
+            return Err(local_trace_data)
         }
+
         let handler = handlers.remove(0);
         let (interface_send, interface_recv): (Sender<BusInterfaceEvent>, _) = flume::bounded(1);
         let interface = BusInterface::new(interface_send);
@@ -112,6 +116,7 @@ impl DABus {
             recev_fut,
             handler: shared_handler,
             handler_fut: Box::pin(async move { handler_fut.await }),
+            local_trace_data,
         };
 
         Ok(frame)
@@ -120,10 +125,10 @@ impl DABus {
     async fn raw_fire(&mut self, def: TypeId, args: DynVar, mut trace: CallTrace) -> (Option<DynVar>, CallTrace) {
         let mut stack: Vec<Frame> = vec![];
 
-        stack.push(match self.gen_frame_for(def, args) {
+        stack.push(match self.gen_frame_for(def, args, trace.root.take().unwrap()) {
             Ok(initial_frame) => initial_frame,
             Err(initial_frame_error) => {
-                trace.root.resolution = Some(Resolution::BusError(initial_frame_error));
+                trace.root = Some(initial_frame_error);
                 return (None, trace)
             }
         });
@@ -135,49 +140,67 @@ impl DABus {
                     recev_fut,
                     handler,
                     handler_fut,
+                    mut local_trace_data,
                 } => {
                     let recv_and_handler_fut = OneOf::new(recev_fut, handler_fut);
                     match recv_and_handler_fut.await {
                         OneOfResult::F0(interface_event, handler_fut) => {
+                            info!("Received interface event: {:?}", interface_event);
                             match interface_event.unwrap() {
                                 BusInterfaceEvent::Fire {
                                     def,
                                     args,
                                     responder,
-                                    trace_data,
-                                } => match self.gen_frame_for(def, args) {
+                                    trace_data: next_event_trace_data,
+                                } => match self.gen_frame_for(def, args, next_event_trace_data) {
                                     Ok(next_frame) => {
-                                        trace.root.inner.push(trace_data);
                                         stack.push(Frame::AwaitingNestedCall {
                                             interface_recv,
                                             handler,
                                             handler_fut,
                                             responder,
+                                            local_trace_data,
                                         });
                                         stack.push(next_frame);
                                     }
-                                    Err(e) => {
-
-                                        responder.send(Err(e)).unwrap();
+                                    Err(error_trace) => {
+                                        responder.send(Err(CallTrace {
+                                            root: Some(error_trace)
+                                        })).unwrap();
                                         let recev_fut = interface_recv.clone().into_recv_async();
                                         stack.push(Frame::ReadyToPoll {
                                             interface_recv,
                                             recev_fut,
                                             handler,
                                             handler_fut,
+                                            local_trace_data,
                                         });
                                     }
                                 }
-                                BusInterfaceEvent::FwdError { error } => {
-                                    todo!()
+                                BusInterfaceEvent::FwdError { error, blocker } => {
+                                    drop(handler_fut);
+                                    drop(blocker);
+                                    let h = Arc::try_unwrap(handler).unwrap();
+                                    self.registered_stops.push(h);
+                                    error!("forwarding errors is not implemented");
+                                    if stack.is_empty() {
+                                        //TODO figure out tracing
+                                        break 'main (None, trace);
+                                    } else {
+                                        todo!()
+                                        //TODO unwinding??
+                                    }
                                 }
                             }
                         }
                         OneOfResult::F1(_, handler_return) => {
+                            info!("Handler returned");
                             self.registered_stops.push(Arc::try_unwrap(handler).unwrap());
+                            local_trace_data.resolution = Some(Resolution::Success);
+                            local_trace_data.return_v = Some(format!("{:#?}", handler_return.as_dbg()));
                             if stack.is_empty() {
-                                trace.root.resolution = Some(Resolution::Success);
-                                trace.root.return_v = Some(format!("{:#?}", handler_return.as_dbg()));
+                                debug_assert!(trace.root.is_none());
+                                trace.root = Some(local_trace_data);
                                 break 'main (Some(handler_return), trace);
                             } else {
                                 if let Frame::AwaitingNestedCall {
@@ -185,8 +208,12 @@ impl DABus {
                                     handler: returned_handler,
                                     handler_fut,
                                     responder,
+                                    local_trace_data: mut caller_handler_trace_data,
                                 } = stack.pop().unwrap()
                                 {
+                                    caller_handler_trace_data.resolution = Some(Resolution::Success);
+                                    caller_handler_trace_data.return_v = Some(format!("{:#?}", handler_return.as_dbg()));
+                                    caller_handler_trace_data.inner.push(local_trace_data);
                                     responder.send(Ok(handler_return)).unwrap();
                                     let recev_fut = interface_recv.clone().into_recv_async();
                                     stack.push(Frame::ReadyToPoll {
@@ -194,6 +221,7 @@ impl DABus {
                                         handler: returned_handler,
                                         recev_fut,
                                         handler_fut,
+                                        local_trace_data: caller_handler_trace_data,
                                     });
                                     continue 'main;
                                 } else {
@@ -217,17 +245,17 @@ impl DABus {
         &mut self,
         def: &'static EventDef<Tag, At, Rt>,
         args: At,
-    ) -> Result<Rt, CallTrace> {
+    ) -> Result<(Rt, CallTrace), CallTrace> {
         info!("Firing initial event: {:?}", def.name);
         let trace = CallTrace {
-            root: CallEvent::from_event_def(def, &args),
+            root: Some(CallEvent::from_event_def(def, &args)),
         };
         let _ = def;
         let def = TypeId::of::<Tag>();
         let args = DynVar::new(args);
         match self.raw_fire(def, args, trace).await {
-            (Some(return_v), _trace) => {
-                Ok(return_v.try_to().unwrap())
+            (Some(return_v), trace) => {
+                Ok((return_v.try_to().unwrap(), trace))
             }
             (None, trace) => {
                 Err(trace)

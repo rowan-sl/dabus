@@ -19,7 +19,7 @@ pub(crate) mod util;
 
 pub use bus::DABus;
 pub use event::{EventDef, EventRegister};
-pub use interface::BusInterface;
+pub use interface::{BusInterface, BusErrorUtil};
 pub use stop::BusStop;
 
 /// things that are just implementation details of the crate,

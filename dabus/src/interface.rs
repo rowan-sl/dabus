@@ -1,21 +1,22 @@
 use std::any::TypeId;
 
 use flume::Sender;
-use futures::pending;
 
 use crate::{
-    bus::error::{FireEventError, CallEvent}, core::dyn_var::DynVar, util::dyn_debug::DynDebug, EventDef,
+    bus::error::{CallEvent, CallTrace}, core::dyn_var::DynVar, util::dyn_debug::DynDebug, EventDef,
 };
 
+#[derive(Debug)]
 pub(crate) enum BusInterfaceEvent {
     Fire {
         def: TypeId,
         args: DynVar,
-        responder: Sender<Result<DynVar, FireEventError>>,
+        responder: Sender<Result<DynVar, CallTrace>>,
         trace_data: CallEvent,
     },
     FwdError {
-        error: FireEventError,
+        error: CallTrace,
+        blocker: Sender<()>,
     },
 }
 
@@ -42,12 +43,12 @@ impl BusInterface {
         &mut self,
         def: &'static EventDef<Tag, At, Rt>,
         args: At,
-    ) -> Result<Rt, FireEventError> {
+    ) -> Result<Rt, CallTrace> {
         let trace_data = CallEvent::from_event_def(def, &args);
         let _ = def;
         let def = TypeId::of::<Tag>();
         let args = DynVar::new(args);
-        let (responder, response) = flume::bounded::<Result<DynVar, FireEventError>>(1);
+        let (responder, response) = flume::bounded::<Result<DynVar, CallTrace>>(1);
         self.channel
             .send(BusInterfaceEvent::Fire {
                 def,
@@ -71,17 +72,15 @@ impl BusInterface {
     /// this returns ! because as soon as this is polled by the runtime (i think) the future of the bus event will be dropped.
     /// (hopefully that wont do anything bad?)
     pub async fn fwd_bus_err(
-        self, /* not needed, but just to enforce the this-is-the-last-thing-you-do theme */
-        error: FireEventError,
+        &self, /* not needed, but just to enforce the this-is-the-last-thing-you-do theme */
+        error: CallTrace,
     ) -> ! {
+        let (blocker, blocks) = flume::bounded::<()>(1);
         self.channel
-            .send(BusInterfaceEvent::FwdError { error })
+            .send(BusInterfaceEvent::FwdError { error, blocker })
             .unwrap();
-        pending!();
-        unsafe {
-            // anyone who gets this far deserves it
-            std::hint::unreachable_unchecked()
-        }
+        blocks.recv_async().await;
+        unreachable!("nani")
     }
 }
 
@@ -89,12 +88,12 @@ impl BusInterface {
 #[async_trait]
 pub trait BusErrorUtil<T> {
     /// unwraps an `Result`, or forwards the error to [`BusInterface::fwd_bus_err`]
-    async fn unwrap_or_fwd(self, bus: BusInterface) -> T;
+    async fn unwrap_or_fwd(self, bus: &BusInterface) -> T;
 }
 
 #[async_trait]
-impl<T: Send> BusErrorUtil<T> for Result<T, FireEventError> {
-    async fn unwrap_or_fwd(self, bus: BusInterface) -> T {
+impl<T: Send> BusErrorUtil<T> for Result<T, CallTrace> {
+    async fn unwrap_or_fwd(self, bus: &BusInterface) -> T {
         match self {
             Ok(x) => x,
             Err(err) => bus.fwd_bus_err(err).await,
