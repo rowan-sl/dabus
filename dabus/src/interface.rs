@@ -20,6 +20,11 @@ pub enum BusInterfaceEvent {
     },
 }
 
+/// Provides a limited [`DABus`] like api for handler implementations.
+///
+/// This is passed to handlers, giving them a way of running actions on the bus that they are being run from.
+///
+/// [`DABus`]: crate::bus::DABus
 #[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub struct BusInterface {

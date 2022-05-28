@@ -5,8 +5,9 @@ use std::any::Any;
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```rust
 /// use std::any::Any;
+/// use dabus::extras::AsAny;
 ///
 /// // you have this struct
 /// struct Foo;
@@ -21,7 +22,7 @@ use std::any::Any;
 ///         // some work is done here probably
 ///     }
 /// }
-///
+/// # fn main() {
 /// // but how do you do that?
 /// let dyn_bar: Box<dyn Bar> = Box::new(Foo);
 ///
@@ -29,10 +30,9 @@ use std::any::Any;
 /// dyn_bar.do_something();
 ///
 /// // using AsAny, you can cast dyn Bar to dyn Any, and then call .downcast() on it
-/// # use dabus::util::AsAny;
 /// let foo_again: Foo = *dyn_bar.to_any().downcast().unwrap();
 /// // tada
-///
+/// # }
 /// ```
 pub trait AsAny: 'static {
     fn as_any(&self) -> &dyn Any;

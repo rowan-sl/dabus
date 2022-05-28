@@ -1,3 +1,5 @@
+//! event declaration related things
+
 pub mod async_fn_ptr;
 
 use std::{
@@ -13,9 +15,9 @@ use self::async_fn_ptr::{AsyncFnPtr, HandlerCallableErased, HandlerFn};
 ///
 /// example:
 /// ```rust
-/// use dabus2::event::EventDef;
+/// use dabus::event;
 ///
-/// static TEST_EVENT: &'static EventDef<unique_type::new!(), ()> = unsafe { &EventDef::new() };
+/// event!(TEST_EVENT, (), ());
 /// ```
 #[allow(clippy::module_name_repetitions)]
 pub struct EventDef<

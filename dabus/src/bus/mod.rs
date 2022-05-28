@@ -1,3 +1,5 @@
+//! the core of DABus
+
 pub mod error;
 
 use core::any::TypeId;
@@ -38,6 +40,30 @@ enum Frame {
     },
 }
 
+/// Messaging bus and handler holder.
+///
+/// # Examples
+///
+/// registering an event handler
+/// ```rust
+/// # use dabus::{BusStop, EventRegister};
+/// # #[derive(Debug, Default)]
+/// # struct SomeEventHandler;
+/// # impl BusStop for SomeEventHandler {
+/// #     fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self> {
+/// #        h
+/// #     }
+/// # }
+/// #
+/// # #[tokio::main]
+/// # async fn main() -> anyhow::Result<()> {
+/// use dabus::DABus;
+///
+/// let mut bus = DABus::new();
+/// bus.register(SomeEventHandler::default());
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub struct DABus {
@@ -45,6 +71,7 @@ pub struct DABus {
 }
 
 impl DABus {
+    /// Creates a new bus instance
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -52,6 +79,7 @@ impl DABus {
         }
     }
 
+    /// Registers a handler with the bus, so that it can be used to handle events on this bus instance.
     pub fn register<T: BusStop + Debug + Send + Sync + 'static>(&mut self, stop: T) {
         info!("Registering stop {:?}", stop);
         debug!(
@@ -68,16 +96,18 @@ impl DABus {
             ))));
     }
 
-    pub fn deregister<T: BusStop + Debug + Send + Sync + 'static>(&mut self) -> Option<T> {
+    /// Attempts to collect all handlers with the specified type and returns them. this is rather blunt,
+    /// as there is no way of specifying a particular handler instance, but it is still usefull.
+    pub fn deregister<T: BusStop + Debug + Send + Sync + 'static>(&mut self) -> Vec<T> {
         let stop = self
             .registered_stops
             .drain_filter(|stop| (*stop.inner.try_lock().unwrap()).as_any().type_id() == TypeId::of::<T>())
-            .next()
-            .map(|item| *item.inner.into_inner().to_any().downcast().unwrap());
-        info!("Deregistering stop {:?}", stop);
+            .map(|item| *item.inner.into_inner().to_any().downcast().unwrap())
+            .collect();
         stop
     }
 
+    /// finds handlers for a specified event (def = TypeId of the tag type on a handler def)
     fn handlers_for(&mut self, def: TypeId) -> Vec<BusStopContainer> {
         debug!("Looking for handlers for {:?}", def);
         self.registered_stops
@@ -93,6 +123,7 @@ impl DABus {
             .collect()
     }
 
+    /// generates a new "stack frame" from a given event defeinition
     fn gen_frame_for(&mut self, def: TypeId, args: DynVar, mut local_trace_data: CallEvent) -> Result<Frame, CallEvent> {
         let mut handlers = self.handlers_for(def);
         assert!(
@@ -124,6 +155,7 @@ impl DABus {
         Ok(frame)
     }
 
+    /// the type-erased function that actually runs an event
     #[allow(clippy::too_many_lines)]// deal
     async fn raw_fire(&mut self, def: TypeId, args: DynVar, mut trace: CallTrace) -> (Option<DynVar>, CallTrace) {
         let mut stack: Vec<Frame> = vec![];
@@ -268,15 +300,16 @@ impl DABus {
     ///
     /// if there is some (expected) error with the runtime. currently this only includes not finding an appropreate handler
     ///
-    pub async fn fire<
-        Tag: unique_type::Unique,
-        At: DynDebug + Sync + Send + 'static,
-        Rt: DynDebug + Sync + Send + 'static,
-    >(
+    pub async fn fire<Tag, At, Rt>(
         &mut self,
         def: &'static EventDef<Tag, At, Rt>,
         args: At,
-    ) -> Result<(Rt, CallTrace), CallTrace> {
+    ) -> Result<(Rt, CallTrace), CallTrace>
+    where
+        Tag: unique_type::Unique,
+        At: DynDebug + Sync + Send + 'static,
+        Rt: DynDebug + Sync + Send + 'static,
+    {
         info!("Firing initial event: {:?}", def.name);
         let trace = CallTrace {
             root: Some(CallEvent::from_event_def(def, &args)),
