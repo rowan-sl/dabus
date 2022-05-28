@@ -21,3 +21,5 @@ futures = "0.3.21"
 thiserror = "1.0.31"
 unique-type = "0.1.0"
 
+[features]
+backtrace_track_values = []

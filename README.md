@@ -94,11 +94,19 @@ this is why:
 #![feature(specialization)]
 ```
 
+## Crate Features
+
+| name                     | description                                                            | default behavior    |
+|--------------------------|------------------------------------------------------------------------|---------------------|
+| `backtrace_track_values` | backtraces will include debug-formats of handler arguments and returns | disabled            |
+
 ## TODO's
 
 - [ ] docs
 - [ ] tests
-- [ ] backtraces (do LATER, do logging NOW)
+- [x] backtraces (do LATER, do logging NOW)
+- [ ] format backtraces
+- [ ] a way of turning off backtraces? (performance)
 - [ ] examples **IMPORTANT**
 - [x] proper error handling
 - [ ] multi-handler events
@@ -106,3 +114,4 @@ this is why:
 - [x] nested handler calls
 - [ ] error forwarding
 - [ ] take a look at [rust api guidelines](https://rust-lang.github.io/api-guidelines/about.html)
+- [ ] profiling and optimization

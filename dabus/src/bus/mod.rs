@@ -99,7 +99,7 @@ impl DABus {
         );
         if handlers.is_empty() {
             error!("no handlers found for {:?}", def);
-            local_trace_data.resolution = Some(Resolution::BusError(FireEventError::from(BaseFireEventError::NoHandler)));
+            local_trace_data.resolve(Resolution::BusError(FireEventError::from(BaseFireEventError::NoHandler)));
             return Err(local_trace_data)
         }
 
@@ -125,10 +125,10 @@ impl DABus {
     async fn raw_fire(&mut self, def: TypeId, args: DynVar, mut trace: CallTrace) -> (Option<DynVar>, CallTrace) {
         let mut stack: Vec<Frame> = vec![];
 
-        stack.push(match self.gen_frame_for(def, args, trace.root.take().unwrap()) {
+        stack.push(match self.gen_frame_for(def, args, trace.take_root().unwrap()) {
             Ok(initial_frame) => initial_frame,
             Err(initial_frame_error) => {
-                trace.root = Some(initial_frame_error);
+                trace.set_root(initial_frame_error);
                 return (None, trace)
             }
         });
@@ -182,10 +182,10 @@ impl DABus {
                                     drop(blocker);
                                     let h = Arc::try_unwrap(handler).unwrap();
                                     self.registered_stops.push(h);
-                                    local_trace_data.resolution = Some(Resolution::NestedCallError);
-                                    local_trace_data.inner.push(error.root.take().unwrap());
+                                    local_trace_data.resolve(Resolution::NestedCallError);
+                                    local_trace_data.push_inner(error.take_root().unwrap());
                                     if stack.is_empty() {
-                                        trace.root = Some(local_trace_data);
+                                        trace.set_root(local_trace_data);
                                         break 'main (None, trace);
                                     } else {
                                         if let Frame::AwaitingNestedCall {
@@ -215,11 +215,10 @@ impl DABus {
                         OneOfResult::F1(_, handler_return) => {
                             info!("Handler returned");
                             self.registered_stops.push(Arc::try_unwrap(handler).unwrap());
-                            local_trace_data.resolution = Some(Resolution::Success);
-                            local_trace_data.return_v = Some(format!("{:#?}", handler_return.as_dbg()));
+                            local_trace_data.resolve(Resolution::Success);
+                            local_trace_data.set_return(&handler_return);
                             if stack.is_empty() {
-                                debug_assert!(trace.root.is_none());
-                                trace.root = Some(local_trace_data);
+                                trace.set_root(local_trace_data);
                                 break 'main (Some(handler_return), trace);
                             } else {
                                 if let Frame::AwaitingNestedCall {
@@ -230,8 +229,8 @@ impl DABus {
                                     local_trace_data: mut caller_handler_trace_data,
                                 } = stack.pop().unwrap()
                                 {
-                                    caller_handler_trace_data.resolution = Some(Resolution::Success);
-                                    caller_handler_trace_data.return_v = Some(format!("{:#?}", handler_return.as_dbg()));
+                                    caller_handler_trace_data.resolve(Resolution::Success);
+                                    caller_handler_trace_data.set_return(&handler_return);
                                     caller_handler_trace_data.inner.push(local_trace_data);
                                     responder.send(Ok(handler_return)).unwrap();
                                     let recev_fut = interface_recv.clone().into_recv_async();
