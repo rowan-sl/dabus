@@ -252,6 +252,22 @@ impl DABus {
         }
     }
 
+    /// Fires an event on the bus, running appropreate handlers and returning the result.
+    ///
+    /// # Returns
+    ///
+    /// on success, this returns the return value sent by the handler, as well as a call trace (this will change)
+    ///
+    /// on failure, this returns only the call trace, which can be used to find what went wrong
+    ///
+    /// # Panics
+    ///
+    /// if a handler that is called panics (or the runtime is broken)
+    ///
+    /// # Errors
+    ///
+    /// if there is some (expected) error with the runtime. currently this only includes not finding an appropreate handler
+    ///
     pub async fn fire<
         Tag: unique_type::Unique,
         At: DynDebug + Sync + Send + 'static,

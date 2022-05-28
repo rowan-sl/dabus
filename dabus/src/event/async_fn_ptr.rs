@@ -39,6 +39,7 @@ impl<H: 'static + Send, At: 'static + Send, Rt: 'static, P> HandlerFn<H, At, Rt,
 where
     P: for<'a> AsyncFnPtr<'a, H, At, Rt> + Send + Copy + 'static,
 {
+    #[must_use]
     pub const fn new(f: P) -> Self {
         Self { f, _t: PhantomData }
     }
@@ -50,6 +51,9 @@ where
 }
 
 pub trait HandlerCallableErased {
+    /// # Safety
+    ///
+    /// the caller must guarentee that `h` and `a` have the same type as `H` and `At` on the trait implementation
     unsafe fn call<'a>(
         &'a self,
         h: &'a mut DynVar,
@@ -65,6 +69,9 @@ where
     At: Send + Sync + 'static,
     Rt: Send + Sync + 'static,
 {
+    /// # Safety
+    ///
+    /// the caller must guarentee that `h` and `a` have the same type as `H` and `At` on the trait implementation
     unsafe fn call<'a>(
         &'a self,
         h: &'a mut DynVar,

@@ -34,9 +34,16 @@ unsafe impl<Tag: unique_type::Unique, At, Rt> Sync for EventDef<Tag, At, Rt> {}
 unsafe impl<Tag: unique_type::Unique, At, Rt> Send for EventDef<Tag, At, Rt> {}
 
 impl<Tag: unique_type::Unique, At, Rt> EventDef<Tag, At, Rt> {
-    /// # Saftey
+    /// Creates a new event defintion
+    ///
+    /// for a easier (and safe) way of creating an event, see [`event!`]
+    ///
+    /// # Safety
+    ///
     /// you MUST use `unique_type::new!()` for the type parameter Tag,
     /// otherwise **THINGS WILL BREAK, INCLUDING YOUR MIND AFTER HOURS OF DEBUGGING**
+    ///
+    /// [`event!`]: crate::event!
     #[must_use]
     pub const unsafe fn new(name: &'static str) -> Self {
         Self {

@@ -46,16 +46,25 @@ impl DynVar {
         }
     }
 
+    /// # Safety
+    ///
+    /// the caller must make sure that the contained value has type T. calling with the incorrect type is *undefined behavior*
     #[must_use]
     pub unsafe fn as_ref_unchecked<T: GeneralRequirements>(&self) -> &T {
         (*self.val).as_any().downcast_ref_unchecked()
     }
 
+    /// # Safety
+    ///
+    /// the caller must make sure that the contained value has type T. calling with the incorrect type is *undefined behavior*
     #[must_use]
     pub unsafe fn as_mut_unchecked<T: GeneralRequirements>(&mut self) -> &mut T {
         (*self.val).mut_any().downcast_mut_unchecked()
     }
 
+    /// # Safety
+    ///
+    /// the caller must make sure that the contained value has type T. calling with the incorrect type is *undefined behavior*
     #[must_use]
     pub unsafe fn try_to_unchecked<T: GeneralRequirements>(self) -> T {
         *self.val.to_any().downcast_unchecked()
@@ -73,6 +82,9 @@ impl DynVar {
         })
     }
 
+    /// # Safety
+    ///
+    /// the caller must make sure that the contained value has type T. calling with the incorrect type is *undefined behavior*
     #[must_use]
     pub unsafe fn clone_as_unchecked<T: GeneralRequirements + Clone + Sync + Send + 'static>(
         &self,
