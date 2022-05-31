@@ -22,9 +22,9 @@ async fn asmain() -> Result<()> {
     bus.register(Printer::new());
     bus.register(HelloHandler);
     match bus.fire(HELLO_EVENT, ()).await {
-        Ok((_, trace)) => {
-            info!("raw:\n{:#?}", trace);
-            info!("formatted:\n{}", trace.display());
+        Ok(res) => {
+            info!("raw:\n{:#?}", res.trace());
+            info!("formatted:\n{}", res.trace().display());
         }
         Err(trace) => {
             info!("error");

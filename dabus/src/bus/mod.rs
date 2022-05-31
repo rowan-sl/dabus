@@ -286,6 +286,10 @@ impl DABus {
 
     /// Fires an event on the bus, running appropreate handlers and returning the result.
     ///
+    /// Args:
+    /// - def: the definition of the event being triggered
+    /// - args: arguments for the event handler
+    ///
     /// # Returns
     ///
     /// on success, this returns the return value sent by the handler, as well as a call trace (this will change)
@@ -304,7 +308,7 @@ impl DABus {
         &mut self,
         def: &'static EventDef<Tag, At, Rt>,
         args: At,
-    ) -> Result<(Rt, CallTrace), CallTrace>
+    ) -> Result<FireEvent<Rt>, CallTrace>
     where
         Tag: unique_type::Unique,
         At: DynDebug + Sync + Send + 'static,
@@ -319,7 +323,10 @@ impl DABus {
         let args = DynVar::new(args);
         match self.raw_fire(def, args, trace).await {
             (Some(return_v), trace) => {
-                Ok((return_v.try_to().unwrap(), trace))
+                Ok(FireEvent {
+                    value: return_v.try_to().unwrap(),
+                    trace,
+                })
             }
             (None, trace) => {
                 Err(trace)
@@ -331,5 +338,21 @@ impl DABus {
 impl Default for DABus {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FireEvent<T> {
+    value: T,
+    trace: CallTrace,
+}
+
+impl<T> FireEvent<T> {
+    pub fn trace(&self) -> CallTrace {
+        self.trace.clone()
+    }
+
+    pub fn ret(self) -> T {
+        self.value
     }
 }
