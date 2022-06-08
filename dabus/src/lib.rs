@@ -17,7 +17,7 @@ pub(crate) mod macros;
 pub(crate) mod stop;
 pub(crate) mod util;
 
-pub use bus::DABus;
+pub use bus::{DABus, FireEvent};
 pub use event::{EventDef, EventRegister};
 pub use interface::{BusInterface, BusErrorUtil};
 pub use stop::BusStop;

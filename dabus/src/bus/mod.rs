@@ -292,7 +292,7 @@ impl DABus {
     ///
     /// # Returns
     ///
-    /// on success, this returns the return value sent by the handler, as well as a call trace (this will change)
+    /// on success, this returns a wrapper, [`FireEvent`] which can be used to acess the call trace and return value
     ///
     /// on failure, this returns only the call trace, which can be used to find what went wrong
     ///
