@@ -2,6 +2,7 @@
 #![feature(drain_filter)]
 #![allow(incomplete_features)]
 #![feature(specialization)]
+#![feature(const_type_id)]
 
 #[allow(unused_imports)]
 #[macro_use]

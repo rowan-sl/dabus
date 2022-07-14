@@ -65,11 +65,12 @@ impl BusInterface {
         Rt: DynDebug + Sync + Send + 'static,
     >(
         &mut self,
-        def: &'static EventDef<Tag, At, Rt>,
+        def: &'static EventDef,
         args: At,
     ) -> Result<Rt, CallTrace> {
+        assert!(def.at == TypeId::of::<At>());
+        assert!(def.rt == TypeId::of::<Rt>());
         let trace_data = CallEvent::from_event_def(def, &args);
-        let _ = def;
         let def = TypeId::of::<Tag>();
         let args = DynVar::new(args);
         let (responder, response) = flume::bounded::<Result<DynVar, CallTrace>>(1);

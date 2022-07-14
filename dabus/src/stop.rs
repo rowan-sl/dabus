@@ -3,11 +3,12 @@ use std::{any::TypeId, fmt::Debug, sync::Arc};
 use futures::lock::Mutex;
 
 use crate::{
-    core::dyn_var::DynVar, event::EventRegister, interface::BusInterface, util::{GeneralRequirements, dyn_debug::DynDebug},
+    core::dyn_var::DynVar, event::{EventRegister, EventDef}, interface::BusInterface, util::{GeneralRequirements, dyn_debug::DynDebug},
 };
 
 #[allow(clippy::module_name_repetitions)]
 pub trait BusStop {
+    const EVENTS: &'static [EventDef];
     fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self>;
 }
 

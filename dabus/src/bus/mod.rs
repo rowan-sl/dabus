@@ -10,14 +10,14 @@ use futures::future::BoxFuture;
 
 use crate::{
     core::dyn_var::DynVar,
-    event::EventDef,
+    event::{EventRegister, EventDef},
     interface::{BusInterface, BusInterfaceEvent},
     stop::{BusStopContainer, BusStopMechContainer},
     util::{
         async_util::{OneOf, OneOfResult},
         dyn_debug::DynDebug,
     },
-    BusStop, EventRegister, bus::error::{CallTrace, CallEvent},
+    BusStop, bus::error::{CallTrace, CallEvent},
 };
 use error::{BaseFireEventError, FireEventError};
 
@@ -304,17 +304,18 @@ impl DABus {
     ///
     /// if there is some (expected) error with the runtime. currently this only includes not finding an appropreate handler
     ///
-    pub async fn fire<Tag, At, Rt>(
+    pub async fn fire<At, Rt>(
         &mut self,
-        def: &'static EventDef<Tag, At, Rt>,
+        def: &'static EventDef,
         args: At,
     ) -> Result<FireEvent<Rt>, CallTrace>
     where
-        Tag: unique_type::Unique,
         At: DynDebug + Sync + Send + 'static,
         Rt: DynDebug + Sync + Send + 'static,
     {
         info!("Firing initial event: {:?}", def.name);
+        assert!(def.at == TypeId::of::<At>());
+        assert!(def.rt == TypeId::of::<Rt>());
         let trace = CallTrace {
             root: Some(CallEvent::from_event_def(def, &args)),
         };

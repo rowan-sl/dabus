@@ -18,21 +18,21 @@ async fn asmain() -> Result<()> {
         .filter_level(log::LevelFilter::Trace)
         .init();
     let mut bus = DABus::new();
-    bus.register(STDOut);
-    bus.register(Printer::new());
-    bus.register(HelloHandler);
-    match bus.fire(HELLO_EVENT, ()).await {
-        Ok(res) => {
-            info!("raw:\n{:#?}", res.trace());
-            info!("formatted:\n{}", res.trace().display());
-        }
-        Err(trace) => {
-            info!("error");
-            info!("raw:\n{:#?}", trace);
-            info!("formatted:\n{}", trace.display());
-            info!("source:\n{:#?}", trace.source().unwrap().display());
-        }
-    }
+    // bus.register(STDOut);
+    // bus.register(Printer::new());
+    // bus.register(HelloHandler);
+    // match bus.fire(HELLO_EVENT, ()).await {
+    //     Ok(res) => {
+    //         info!("raw:\n{:#?}", res.trace());
+    //         info!("formatted:\n{}", res.trace().display());
+    //     }
+    //     Err(trace) => {
+    //         info!("error");
+    //         info!("raw:\n{:#?}", trace);
+    //         info!("formatted:\n{}", trace.display());
+    //         info!("source:\n{:#?}", trace.source().unwrap().display());
+    //     }
+    // }
     Ok(())
 }
 
@@ -53,7 +53,7 @@ fn main() -> Result<()> {
         .block_on(asmain())
 }
 
-event!(HELLO_EVENT, (), ());
+// event!(HELLO_EVENT, (), ());
 
 #[derive(Debug)]
 pub struct HelloHandler;
@@ -68,13 +68,13 @@ impl HelloHandler {
     }
 }
 
-impl BusStop for HelloHandler {
-    fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self> {
-        h.handler(HELLO_EVENT, Self::hello_world)
-    }
-}
+// impl BusStop for HelloHandler {
+//     fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self> {
+//         h.handler(HELLO_EVENT, Self::hello_world)
+//     }
+// }
 
-event!(WRITE_EVENT, String, std::io::Result<()>);
+// event!(WRITE_EVENT, String, std::io::Result<()>);
 
 #[derive(Debug)]
 pub struct STDOut;
@@ -85,14 +85,14 @@ impl STDOut {
     }
 }
 
-impl BusStop for STDOut {
-    fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self> {
-        h.handler(WRITE_EVENT, Self::write)
-    }
-}
+// impl BusStop for STDOut {
+//     fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self> {
+//         h.handler(WRITE_EVENT, Self::write)
+//     }
+// }
 
-event!(PRINT_EVENT, String, ());
-event!(FLUSH_EVENT, (), ());
+// event!(PRINT_EVENT, String, ());
+// event!(FLUSH_EVENT, (), ());
 
 #[derive(Debug)]
 pub struct Printer {
@@ -122,9 +122,9 @@ impl Printer {
     }
 }
 
-impl BusStop for Printer {
-    fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self> {
-        h.handler(PRINT_EVENT, Self::print)
-            .handler(FLUSH_EVENT, Self::flush)
-    }
-}
+// impl BusStop for Printer {
+//     fn registered_handlers(h: EventRegister<Self>) -> EventRegister<Self> {
+//         h.handler(PRINT_EVENT, Self::print)
+//             .handler(FLUSH_EVENT, Self::flush)
+//     }
+// }
