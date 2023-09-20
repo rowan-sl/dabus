@@ -1,12 +1,12 @@
 [package]
 name = "dabus"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 license = "MIT"
 readme = "../README.md"
 authors = ["Rowan S-L <rowan@fawkes.io>"]
 description = "Dynamic Aplication Controll Bus - an asynchronous, event based module system for thoes who want to move fast and *not* break things"
-repository = "https://github.com/rowan-sl/dabus/"
+repository = "https://git.fawkes.io/mtnash/dabus/"
 keywords = ["module", "runtime", "bus", "async", "message"]
 categories = ["asynchronous", "rust-patterns"]
 

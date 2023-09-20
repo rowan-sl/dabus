@@ -6,6 +6,9 @@ and can interact with eachother **without aknowlaging eachothers existance**.
 it maintains all of rust's type saftey and guarentees, while being able to act
 in a highly dynamic fasion, almost like something out of javascript, but with none of the downsides.
 
+## Issue tracker
+the issue tracker for this project is on the [github mirror](https://github.com/rowan-sl/dabus)
+
 ## Key Features
 
 - Type-Erased: the central `DABus` structure does not need to know any of the types related to a handler, or any events it is processing
