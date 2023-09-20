@@ -1,4 +1,3 @@
-
 /// declares an EventDef in a global const variable corrisponding to an event with the specified types.
 ///
 /// each event declaration will have a unique type, so you must only use ONE declaration to refer to a event, eg

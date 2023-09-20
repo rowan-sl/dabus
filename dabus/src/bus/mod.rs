@@ -9,16 +9,17 @@ use flume::{r#async::RecvFut, Receiver, Sender};
 use futures::future::BoxFuture;
 
 use crate::{
+    bus::error::{CallEvent, CallTrace},
     core::dyn_var::DynVar,
     event::EventDef,
     interface::{BusInterface, BusInterfaceEvent},
     stop::{BusStopContainer, BusStopMechContainer},
+    unique_type,
     util::{
         async_util::{OneOf, OneOfResult},
         dyn_debug::DynDebug,
     },
-    BusStop, EventRegister, bus::error::{CallTrace, CallEvent},
-    unique_type,
+    BusStop, EventRegister,
 };
 use error::{BaseFireEventError, FireEventError};
 
@@ -102,7 +103,9 @@ impl DABus {
     pub fn deregister<T: BusStop + Debug + Send + Sync + 'static>(&mut self) -> Vec<T> {
         let stop = self
             .registered_stops
-            .extract_if(|stop| (*stop.inner.try_lock().unwrap()).as_any().type_id() == TypeId::of::<T>())
+            .extract_if(|stop| {
+                (*stop.inner.try_lock().unwrap()).as_any().type_id() == TypeId::of::<T>()
+            })
             .map(|item| *item.inner.into_inner().to_any().downcast().unwrap())
             .collect();
         stop
@@ -125,7 +128,12 @@ impl DABus {
     }
 
     /// generates a new "stack frame" from a given event defeinition
-    fn gen_frame_for(&mut self, def: TypeId, args: DynVar, mut local_trace_data: CallEvent) -> Result<Frame, CallEvent> {
+    fn gen_frame_for(
+        &mut self,
+        def: TypeId,
+        args: DynVar,
+        mut local_trace_data: CallEvent,
+    ) -> Result<Frame, CallEvent> {
         let mut handlers = self.handlers_for(def);
         assert!(
             handlers.len() < 2,
@@ -133,8 +141,10 @@ impl DABus {
         );
         if handlers.is_empty() {
             error!("no handlers found for {:?}", def);
-            local_trace_data.resolve(Resolution::BusError(FireEventError::from(BaseFireEventError::NoHandler)));
-            return Err(local_trace_data)
+            local_trace_data.resolve(Resolution::BusError(FireEventError::from(
+                BaseFireEventError::NoHandler,
+            )));
+            return Err(local_trace_data);
         }
 
         let handler = handlers.remove(0);
@@ -143,7 +153,11 @@ impl DABus {
 
         let recev_fut = interface_recv.clone().into_recv_async();
         let shared_handler = Arc::new(handler);
-        let handler_fut = unsafe { shared_handler.clone().handle_raw_event(def, args, interface) };
+        let handler_fut = unsafe {
+            shared_handler
+                .clone()
+                .handle_raw_event(def, args, interface)
+        };
 
         let frame = Frame::ReadyToPoll {
             interface_recv,
@@ -157,17 +171,24 @@ impl DABus {
     }
 
     /// the type-erased function that actually runs an event
-    #[allow(clippy::too_many_lines)]// deal
-    async fn raw_fire(&mut self, def: TypeId, args: DynVar, mut trace: CallTrace) -> (Option<DynVar>, CallTrace) {
+    #[allow(clippy::too_many_lines)] // deal
+    async fn raw_fire(
+        &mut self,
+        def: TypeId,
+        args: DynVar,
+        mut trace: CallTrace,
+    ) -> (Option<DynVar>, CallTrace) {
         let mut stack: Vec<Frame> = vec![];
 
-        stack.push(match self.gen_frame_for(def, args, trace.take_root().unwrap()) {
-            Ok(initial_frame) => initial_frame,
-            Err(initial_frame_error) => {
-                trace.set_root(initial_frame_error);
-                return (None, trace)
-            }
-        });
+        stack.push(
+            match self.gen_frame_for(def, args, trace.take_root().unwrap()) {
+                Ok(initial_frame) => initial_frame,
+                Err(initial_frame_error) => {
+                    trace.set_root(initial_frame_error);
+                    return (None, trace);
+                }
+            },
+        );
 
         'main: loop {
             match stack.pop().unwrap() {
@@ -200,9 +221,11 @@ impl DABus {
                                         stack.push(next_frame);
                                     }
                                     Err(error_trace) => {
-                                        responder.send(Err(CallTrace {
-                                            root: Some(error_trace)
-                                        })).unwrap();
+                                        responder
+                                            .send(Err(CallTrace {
+                                                root: Some(error_trace),
+                                            }))
+                                            .unwrap();
                                         let recev_fut = interface_recv.clone().into_recv_async();
                                         stack.push(Frame::ReadyToPoll {
                                             interface_recv,
@@ -212,7 +235,7 @@ impl DABus {
                                             local_trace_data,
                                         });
                                     }
-                                }
+                                },
                                 BusInterfaceEvent::FwdBusError { mut error, blocker } => {
                                     drop(handler_fut);
                                     drop(blocker);
@@ -229,8 +252,13 @@ impl DABus {
                                         handler_fut: nested_handler_fut,
                                         responder,
                                         local_trace_data: caller_handler_trace_data,
-                                    } = stack.pop().unwrap() {
-                                        responder.send(Err(CallTrace { root: Some(local_trace_data) })).unwrap();
+                                    } = stack.pop().unwrap()
+                                    {
+                                        responder
+                                            .send(Err(CallTrace {
+                                                root: Some(local_trace_data),
+                                            }))
+                                            .unwrap();
                                         let recev_fut = interface_recv.clone().into_recv_async();
                                         stack.push(Frame::ReadyToPoll {
                                             interface_recv,
@@ -247,7 +275,8 @@ impl DABus {
                         }
                         OneOfResult::F1(_, handler_return) => {
                             info!("Handler returned");
-                            self.registered_stops.push(Arc::try_unwrap(handler).unwrap());
+                            self.registered_stops
+                                .push(Arc::try_unwrap(handler).unwrap());
                             if stack.is_empty() {
                                 local_trace_data.resolve(Resolution::Success);
                                 local_trace_data.set_return(&handler_return);
@@ -323,15 +352,11 @@ impl DABus {
         let def = TypeId::of::<Tag>();
         let args = DynVar::new(args);
         match self.raw_fire(def, args, trace).await {
-            (Some(return_v), trace) => {
-                Ok(FireEvent {
-                    value: return_v.try_to().unwrap(),
-                    trace,
-                })
-            }
-            (None, trace) => {
-                Err(trace)
-            }
+            (Some(return_v), trace) => Ok(FireEvent {
+                value: return_v.try_to().unwrap(),
+                trace,
+            }),
+            (None, trace) => Err(trace),
         }
     }
 }

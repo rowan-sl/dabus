@@ -3,7 +3,10 @@ use std::{any::TypeId, fmt::Debug, sync::Arc};
 use futures::lock::Mutex;
 
 use crate::{
-    core::dyn_var::DynVar, event::EventRegister, interface::BusInterface, util::{GeneralRequirements, dyn_debug::DynDebug},
+    core::dyn_var::DynVar,
+    event::EventRegister,
+    interface::BusInterface,
+    util::{dyn_debug::DynDebug, GeneralRequirements},
 };
 
 #[allow(clippy::module_name_repetitions)]
@@ -103,7 +106,10 @@ impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> BusStopMechCo
     }
 }
 
-impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> seal::Sealed for BusStopMechContainer<B> {}
+impl<B: BusStopMech + GeneralRequirements + Send + Sync + 'static> seal::Sealed
+    for BusStopMechContainer<B>
+{
+}
 
 #[async_trait]
 #[doc(hidden)]
@@ -149,7 +155,9 @@ pub struct BusStopContainer {
 
 impl BusStopContainer {
     pub fn new(inner: Box<dyn BusStopReq + Send + Sync + 'static>) -> Self {
-        Self { inner: Mutex::new(inner) }
+        Self {
+            inner: Mutex::new(inner),
+        }
     }
 
     pub async unsafe fn handle_raw_event(

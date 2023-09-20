@@ -15,16 +15,16 @@ pub mod event;
 pub(crate) mod interface;
 pub(crate) mod macros;
 pub(crate) mod stop;
-pub(crate) mod util;
 #[doc(hidden)]
 pub mod unique_type;
+pub(crate) mod util;
 
 #[doc(hidden)]
 pub use ::concat_idents as __concat_idents;
 
 pub use bus::{DABus, FireEvent};
 pub use event::{EventDef, EventRegister};
-pub use interface::{BusInterface, BusErrorUtil};
+pub use interface::{BusErrorUtil, BusInterface};
 pub use stop::BusStop;
 
 /// things that are just implementation details of the crate,
@@ -33,6 +33,6 @@ pub use stop::BusStop;
 /// do not expect (much) stability guarentees from this
 pub mod extras {
     pub use crate::core::dyn_var::DynVar;
-    pub use crate::util::{AsAny, PossiblyClone, TypeNamed, async_util, dyn_debug::DynDebug};
     pub use crate::event::async_fn_ptr;
+    pub use crate::util::{async_util, dyn_debug::DynDebug, AsAny, PossiblyClone, TypeNamed};
 }

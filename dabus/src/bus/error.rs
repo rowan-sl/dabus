@@ -1,6 +1,6 @@
 use std::{any::type_name, fmt::Write};
 
-use crate::{EventDef, util::dyn_debug::DynDebug, core::dyn_var::DynVar, unique_type};
+use crate::{core::dyn_var::DynVar, unique_type, util::dyn_debug::DynDebug, EventDef};
 
 #[derive(Clone, Debug, thiserror::Error)]
 #[allow(clippy::module_name_repetitions)]
@@ -50,11 +50,11 @@ impl CallTrace {
         loop {
             let last_inner = current_root.inner.last()?.clone();
             match last_inner.resolution {
-                None | Some(Resolution::Success) => None?,// invalid trace | no error
+                None | Some(Resolution::Success) => None?, // invalid trace | no error
                 Some(Resolution::NestedCallError) => current_root = last_inner, // more to go
                 Some(Resolution::BusError(..)) => {
                     current_root = last_inner;
-                    break // we found it!
+                    break; // we found it!
                 }
             }
         }
@@ -66,7 +66,6 @@ impl CallTrace {
         self.root.as_ref().unwrap().display()
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub enum Resolution {
@@ -89,7 +88,14 @@ pub struct CallEvent {
 #[cfg(not(feature = "backtrace_track_values"))]
 impl CallEvent {
     #[must_use]
-    pub fn from_event_def<Tag: unique_type::Unique, At: DynDebug + 'static, Rt: DynDebug + 'static>(def: &'static EventDef<Tag, At, Rt>, _: &At) -> Self {
+    pub fn from_event_def<
+        Tag: unique_type::Unique,
+        At: DynDebug + 'static,
+        Rt: DynDebug + 'static,
+    >(
+        def: &'static EventDef<Tag, At, Rt>,
+        _: &At,
+    ) -> Self {
         Self {
             handler_name: def.name,
             handler_args_t: type_name::<At>(),
@@ -114,7 +120,7 @@ impl CallEvent {
             args_t = self.handler_args_t,
             ret_t = self.return_t,
         );
-        let nested: Vec<String> = self.inner.iter().map(|event| {event.display()}).collect();
+        let nested: Vec<String> = self.inner.iter().map(|event| event.display()).collect();
         let nested_calls: bool = !nested.is_empty();
         if nested_calls {
             initial.push('\n');
@@ -122,7 +128,10 @@ impl CallEvent {
             write!(initial, " ::: {:?}", self.resolution.as_ref().unwrap()).unwrap();
         }
         for n in nested {
-            let indented_n = n.split('\n').map(|line| INDENT.to_string() + line + "\n").collect::<String>();
+            let indented_n = n
+                .split('\n')
+                .map(|line| INDENT.to_string() + line + "\n")
+                .collect::<String>();
             initial.push_str(&indented_n);
         }
         if nested_calls {
@@ -134,7 +143,14 @@ impl CallEvent {
 
 #[cfg(feature = "backtrace_track_values")]
 impl CallEvent {
-    pub fn from_event_def<Tag: unique_type::Unique, At: DynDebug + 'static, Rt: DynDebug + 'static>(def: &'static EventDef<Tag, At, Rt>, args: &At) -> Self {
+    pub fn from_event_def<
+        Tag: unique_type::Unique,
+        At: DynDebug + 'static,
+        Rt: DynDebug + 'static,
+    >(
+        def: &'static EventDef<Tag, At, Rt>,
+        args: &At,
+    ) -> Self {
         Self {
             handler_name: def.name,
             handler_args_t: type_name::<At>(),
@@ -155,7 +171,12 @@ impl CallEvent {
 
 impl CallEvent {
     pub fn resolve(&mut self, resolution: Resolution) {
-        debug_assert!(self.resolution.is_none(), "attempted to set resolution to {:?}, but resolution was already set to: {:?}", resolution, self.resolution);
+        debug_assert!(
+            self.resolution.is_none(),
+            "attempted to set resolution to {:?}, but resolution was already set to: {:?}",
+            resolution,
+            self.resolution
+        );
         self.resolution = Some(resolution);
     }
 

@@ -5,8 +5,9 @@ use flume::Sender;
 use crate::{
     bus::error::{CallEvent, CallTrace},
     core::dyn_var::DynVar,
-    util::dyn_debug::DynDebug, EventDef,
     unique_type,
+    util::dyn_debug::DynDebug,
+    EventDef,
 };
 
 #[derive(Debug)]
@@ -105,10 +106,7 @@ impl BusInterface {
     /// - this function (from the perspective of the handler) will never return, but from the persepective of the program it will, so keep that in mind.
     ///
     /// - see the `Notes` section in [`BusInterface::fire`]
-    pub async fn fwd_bus_err(
-        &self,
-        error: CallTrace,
-    ) -> ! {
+    pub async fn fwd_bus_err(&self, error: CallTrace) -> ! {
         let (blocker, blocks) = flume::bounded::<()>(1);
         self.channel
             .send(BusInterfaceEvent::FwdBusError { error, blocker })
