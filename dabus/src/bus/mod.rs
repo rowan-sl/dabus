@@ -171,8 +171,11 @@ impl DABus {
     }
 
     /// the type-erased function that actually runs an event
+    /// ## You probably want to use `DABus::fire`, not this
+    /// this function is only made available to allow for defered events (may or may
+    /// not become part of this crate in the future, currently used in hayselnut)
     #[allow(clippy::too_many_lines)] // deal
-    async fn raw_fire(
+    pub async fn raw_fire(
         &mut self,
         def: TypeId,
         args: DynVar,
