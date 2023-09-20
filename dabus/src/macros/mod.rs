@@ -19,10 +19,18 @@
 #[macro_export]
 macro_rules! event {
     ($name:ident, $arg:ty, $ret:ty) => {
-        pub const $name: &'static $crate::event::EventDef<
-            $crate::event::unique_type::new!(),
-            $arg,
-            $ret,
-        > = &unsafe { $crate::event::EventDef::new(concat!(stringify!($name))) };
+        $crate::__concat_idents::concat_idents!(unique_t = __, $name, _, unique {
+            #[doc(hidden)]
+            #[allow(non_camel_case_types)]
+            pub struct unique_t;
+            unsafe impl $crate::unique_type::Unique for unique_t {}
+            pub const $name: &'static $crate::event::EventDef<
+                unique_t,
+                $arg,
+                $ret,
+            > = &unsafe {
+                $crate::event::EventDef::new(concat!(stringify!($name)))
+            };
+        });
     };
 }

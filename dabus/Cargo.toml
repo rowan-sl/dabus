@@ -19,7 +19,7 @@ log = "0.4.16"
 async-trait = "0.1"
 futures = "0.3.21"
 thiserror = "1.0.31"
-unique-type = "0.1.0"
+concat-idents = "1.1.5"
 
 [dev-dependencies]
 anyhow = "1.0.57"

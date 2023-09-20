@@ -3,7 +3,10 @@ use std::any::TypeId;
 use flume::Sender;
 
 use crate::{
-    bus::error::{CallEvent, CallTrace}, core::dyn_var::DynVar, util::dyn_debug::DynDebug, EventDef,
+    bus::error::{CallEvent, CallTrace},
+    core::dyn_var::DynVar,
+    util::dyn_debug::DynDebug, EventDef,
+    unique_type,
 };
 
 #[derive(Debug)]

@@ -1,7 +1,7 @@
 #![feature(downcast_unchecked)]
-#![feature(drain_filter)]
 #![allow(incomplete_features)]
 #![feature(specialization)]
+#![feature(extract_if)]
 
 #[allow(unused_imports)]
 #[macro_use]
@@ -16,6 +16,11 @@ pub(crate) mod interface;
 pub(crate) mod macros;
 pub(crate) mod stop;
 pub(crate) mod util;
+#[doc(hidden)]
+pub mod unique_type;
+
+#[doc(hidden)]
+pub use ::concat_idents as __concat_idents;
 
 pub use bus::{DABus, FireEvent};
 pub use event::{EventDef, EventRegister};

@@ -7,9 +7,8 @@ use std::{
     marker::PhantomData,
 };
 
-pub use unique_type;
-
-use self::async_fn_ptr::{AsyncFnPtr, HandlerCallableErased, HandlerFn};
+use async_fn_ptr::{AsyncFnPtr, HandlerCallableErased, HandlerFn};
+use crate::unique_type;
 
 /// type for declaring events.
 ///

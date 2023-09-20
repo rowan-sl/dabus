@@ -1,0 +1,1 @@
+pub unsafe trait Unique {}

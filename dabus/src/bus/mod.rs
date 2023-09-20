@@ -18,6 +18,7 @@ use crate::{
         dyn_debug::DynDebug,
     },
     BusStop, EventRegister, bus::error::{CallTrace, CallEvent},
+    unique_type,
 };
 use error::{BaseFireEventError, FireEventError};
 
@@ -101,7 +102,7 @@ impl DABus {
     pub fn deregister<T: BusStop + Debug + Send + Sync + 'static>(&mut self) -> Vec<T> {
         let stop = self
             .registered_stops
-            .drain_filter(|stop| (*stop.inner.try_lock().unwrap()).as_any().type_id() == TypeId::of::<T>())
+            .extract_if(|stop| (*stop.inner.try_lock().unwrap()).as_any().type_id() == TypeId::of::<T>())
             .map(|item| *item.inner.into_inner().to_any().downcast().unwrap())
             .collect();
         stop
@@ -111,7 +112,7 @@ impl DABus {
     fn handlers_for(&mut self, def: TypeId) -> Vec<BusStopContainer> {
         debug!("Looking for handlers for {:?}", def);
         self.registered_stops
-            .drain_filter(|stop| {
+            .extract_if(|stop| {
                 if stop.relevant(def) {
                     trace!("Found match: {:?}", stop.debug());
                     true

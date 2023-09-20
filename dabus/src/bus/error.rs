@@ -1,6 +1,6 @@
 use std::{any::type_name, fmt::Write};
 
-use crate::{EventDef, util::dyn_debug::DynDebug, core::dyn_var::DynVar};
+use crate::{EventDef, util::dyn_debug::DynDebug, core::dyn_var::DynVar, unique_type};
 
 #[derive(Clone, Debug, thiserror::Error)]
 #[allow(clippy::module_name_repetitions)]
